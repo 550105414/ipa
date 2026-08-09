@@ -81,10 +81,4 @@ function isReservedAuthPath(pathname: string): boolean {
   );
 }
 
-function safeDecodeURIComponent(value: string): string | null {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return null;
-  }
-}
+function safeDecodeURIComponent(value: string): string | null 

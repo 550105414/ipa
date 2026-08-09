@@ -10,5 +10,4 @@ export function getDb() {
     );
   }
 
-  return drizzle(database, { schema });
-}
+  return drizzle(database, { sche

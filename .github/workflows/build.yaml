@@ -32,8 +32,6 @@ jobs:
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       EXPORT_METHOD: ${{ inputs.export_method }}
       BUNDLE_ID: com.xiaoke.salesworkspace
-      KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
-      PROFILE_PATH: ${{ runner.temp }}/build.mobileprovision
 
     steps:
       - name: Check out source
@@ -90,29 +88,31 @@ jobs:
         run: |
           set -euo pipefail
           certificate_path="$RUNNER_TEMP/build-certificate.p12"
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
+          profile_path="$RUNNER_TEMP/build.mobileprovision"
           profile_plist="$RUNNER_TEMP/profile.plist"
           profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
 
           printf '%s' "$BUILD_CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$certificate_path"
-          printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | /usr/bin/base64 -D > "$PROFILE_PATH"
+          printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | /usr/bin/base64 -D > "$profile_path"
 
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
           security import "$certificate_path" \
             -P "$P12_PASSWORD" \
             -A \
             -t cert \
             -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
+            -k "$keychain_path"
           security set-key-partition-list \
             -S apple-tool:,apple: \
             -s \
             -k "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
 
-          security cms -D -i "$PROFILE_PATH" > "$profile_plist"
+          security cms -D -i "$profile_path" > "$profile_plist"
           profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
           profile_team_id="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")"
           profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
@@ -135,11 +135,11 @@ jobs:
 
           mkdir -p "$profiles_dir"
           installed_profile="$profiles_dir/$profile_uuid.mobileprovision"
-          cp "$PROFILE_PATH" "$installed_profile"
+          cp "$profile_path" "$installed_profile"
 
           echo "profile_uuid=$profile_uuid" >> "$GITHUB_OUTPUT"
           echo "installed_profile=$installed_profile" >> "$GITHUB_OUTPUT"
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$keychain_path"
 
       - name: Build signed IPA
         shell: bash
@@ -172,9 +172,9 @@ jobs:
         if: always()
         shell: bash
         run: |
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
           rm -f \
             "$RUNNER_TEMP/build-certificate.p12" \
             "$RUNNER_TEMP/profile.plist" \
-            "$PROFILE_PATH" \
+            "$RUNNER_TEMP/build.mobileprovision" \
             "${{ steps.signing.outputs.installed_profile }}"

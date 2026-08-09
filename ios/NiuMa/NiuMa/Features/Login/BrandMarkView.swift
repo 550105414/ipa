@@ -17,7 +17,6 @@ struct BrandMarkView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("牛马")
                     .font(compact ? .title3 : .largeTitle)
-                    .fontDesign(.serif)
                     .bold()
                     .foregroundStyle(AppTheme.ink)
 

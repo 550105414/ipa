@@ -13,7 +13,6 @@ struct WebErrorView: View {
 
             Text("无法连接工作台")
                 .font(.title2)
-                .fontDesign(.serif)
                 .bold()
                 .foregroundStyle(AppTheme.ink)
 

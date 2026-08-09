@@ -1,0 +1,82 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ios/NiuMa/**
+      - .github/workflows/build-unsigned.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unsigned-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-unsigned-ipa:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Show Xcode project information
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodebuild -list -project ios/NiuMa/NiuMa.xcodeproj
+
+      - name: Build app without code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/NiuMa/NiuMa.xcodeproj \
+            -scheme NiuMa \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            clean build
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          products_dir="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos"
+          shopt -s nullglob
+          apps=("$products_dir"/*.app)
+          if [[ "${#apps[@]}" -ne 1 ]]; then
+            echo "预期生成 1 个 iOS App，实际为 ${#apps[@]}。" >&2
+            exit 1
+          fi
+
+          package_dir="$RUNNER_TEMP/unsigned-package"
+          mkdir -p "$package_dir/Payload"
+          /usr/bin/ditto "${apps[0]}" "$package_dir/Payload/牛马.app"
+          (
+            cd "$package_dir"
+            /usr/bin/zip -qry "$RUNNER_TEMP/NiuMa-unsigned.ipa" Payload
+          )
+
+          test -s "$RUNNER_TEMP/NiuMa-unsigned.ipa"
+          shasum -a 256 "$RUNNER_TEMP/NiuMa-unsigned.ipa"
+          /usr/bin/unzip -l "$RUNNER_TEMP/NiuMa-unsigned.ipa" | head -n 25
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: NiuMa-unsigned-${{ github.run_number }}
+          path: ${{ runner.temp }}/NiuMa-unsigned.ipa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 5

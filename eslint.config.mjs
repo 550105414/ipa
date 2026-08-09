@@ -35,4 +35,7 @@ const eslintConfig = defineConfig([
         version: "detect",
       },
     },
-  
+  },
+]);
+
+export default eslintConfig;

@@ -51,4 +51,8 @@ export async function POST(request: Request) {
     return Response.json({ note }, { status: 201 });
   } catch (error) {
     return Response.json(
-      { error: toRouteError
+      { error: toRouteErrorMessage(error) },
+      { status: 500 }
+    );
+  }
+}

@@ -4,4 +4,4 @@ const nextConfig: NextConfig = {
   /* config options here */
 };
 
-export default nextCo
+export default nextConfig;

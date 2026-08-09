@@ -3,6 +3,38 @@ import WebKit
 
 struct WorkspaceWebView: UIViewRepresentable {
     private static let workspaceURL = URL(string: "https://xiaoke-sales-workspace.rich-mug-8653.chatgpt.site/")
+
+    /// iOS 16 WebKit lacks the static `Response.json` factory used by the hosted login page.
+    private static let responseJSONCompatibilitySource = #"""
+    (function () {
+        if (typeof Response === "undefined" || typeof Response.json === "function") {
+            return;
+        }
+
+        Object.defineProperty(Response, "json", {
+            configurable: true,
+            writable: true,
+            value: function (data, init) {
+                var body = JSON.stringify(data);
+                if (body === undefined) {
+                    throw new TypeError("Value is not JSON serializable");
+                }
+
+                var responseInit = init == null ? {} : init;
+                var headers = new Headers(responseInit.headers);
+                if (!headers.has("content-type")) {
+                    headers.set("content-type", "application/json");
+                }
+
+                return new Response(body, {
+                    headers: headers,
+                    status: responseInit.status,
+                    statusText: responseInit.statusText
+                });
+            }
+        });
+    }());
+    """#
     let model: WebViewModel
 
     func makeCoordinator() -> WebNavigationCoordinator {
@@ -16,8 +48,15 @@ struct WorkspaceWebView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences = preferences
         configuration.websiteDataStore = .default()
-        configuration.applicationNameForUserAgent = "NiuMa-iOS/1.0"
+        configuration.applicationNameForUserAgent = "NiuMa-iOS/1.0.2"
         configuration.allowsInlineMediaPlayback = true
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.responseJSONCompatibilitySource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator

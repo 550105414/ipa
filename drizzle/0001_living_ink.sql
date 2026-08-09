@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `idx_customers_owner_phone_unique` ON `customers` (`owner_id`,`phone`);

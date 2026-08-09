@@ -1,0 +1,236 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000101 /* NiuMaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000201 /* NiuMaApp.swift */; };
+		A10000000000000000000102 /* AppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000202 /* AppRootView.swift */; };
+		A10000000000000000000103 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000203 /* AppTheme.swift */; };
+		A10000000000000000000104 /* LoginConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000204 /* LoginConfiguration.swift */; };
+		A10000000000000000000105 /* PasswordDerivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000205 /* PasswordDerivation.swift */; };
+		A10000000000000000000106 /* CredentialVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000206 /* CredentialVerifier.swift */; };
+		A10000000000000000000107 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000207 /* SessionStore.swift */; };
+		A10000000000000000000108 /* BrandMarkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000208 /* BrandMarkView.swift */; };
+		A10000000000000000000109 /* LoginHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000209 /* LoginHeaderView.swift */; };
+		A1000000000000000000010A /* LoginFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000020A /* LoginFormView.swift */; };
+		A1000000000000000000010B /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000020B /* LoginView.swift */; };
+		A1000000000000000000010C /* WebViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000020C /* WebViewModel.swift */; };
+		A1000000000000000000010D /* WebNavigationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000020D /* WebNavigationCoordinator.swift */; };
+		A1000000000000000000010E /* WorkspaceWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000020E /* WorkspaceWebView.swift */; };
+		A1000000000000000000010F /* WorkspaceAddressError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000020F /* WorkspaceAddressError.swift */; };
+		A10000000000000000000110 /* WorkspaceToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000210 /* WorkspaceToolbarView.swift */; };
+		A10000000000000000000111 /* WebErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000211 /* WebErrorView.swift */; };
+		A10000000000000000000112 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000212 /* WorkspaceView.swift */; };
+		A10000000000000000000113 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000213 /* Assets.xcassets */; };
+		A10000000000000000000114 /* PasswordDerivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000215 /* PasswordDerivationTests.swift */; };
+		A10000000000000000000115 /* LoginField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000021A /* LoginField.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A10000000000000000000301 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000901 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000601;
+			remoteInfo = NiuMa;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A10000000000000000000201 /* NiuMaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NiuMaApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000202 /* AppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppRootView.swift; sourceTree = "<group>"; };
+		A10000000000000000000203 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design/AppTheme.swift; sourceTree = "<group>"; };
+		A10000000000000000000204 /* LoginConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Login/LoginConfiguration.swift; sourceTree = "<group>"; };
+		A10000000000000000000205 /* PasswordDerivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Login/PasswordDerivation.swift; sourceTree = "<group>"; };
+		A10000000000000000000206 /* CredentialVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Login/CredentialVerifier.swift; sourceTree = "<group>"; };
+		A10000000000000000000207 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Login/SessionStore.swift; sourceTree = "<group>"; };
+		A10000000000000000000208 /* BrandMarkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Login/BrandMarkView.swift; sourceTree = "<group>"; };
+		A10000000000000000000209 /* LoginHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Login/LoginHeaderView.swift; sourceTree = "<group>"; };
+		A1000000000000000000020A /* LoginFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Login/LoginFormView.swift; sourceTree = "<group>"; };
+		A1000000000000000000020B /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Login/LoginView.swift; sourceTree = "<group>"; };
+		A1000000000000000000020C /* WebViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/WebViewModel.swift; sourceTree = "<group>"; };
+		A1000000000000000000020D /* WebNavigationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/WebNavigationCoordinator.swift; sourceTree = "<group>"; };
+		A1000000000000000000020E /* WorkspaceWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/WorkspaceWebView.swift; sourceTree = "<group>"; };
+		A1000000000000000000020F /* WorkspaceAddressError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/WorkspaceAddressError.swift; sourceTree = "<group>"; };
+		A10000000000000000000210 /* WorkspaceToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/WorkspaceToolbarView.swift; sourceTree = "<group>"; };
+		A10000000000000000000211 /* WebErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/WebErrorView.swift; sourceTree = "<group>"; };
+		A10000000000000000000212 /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/WorkspaceView.swift; sourceTree = "<group>"; };
+		A10000000000000000000213 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Resources/Assets.xcassets; sourceTree = "<group>"; };
+		A10000000000000000000214 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Resources/Info.plist; sourceTree = "<group>"; };
+		A10000000000000000000215 /* PasswordDerivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordDerivationTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000216 /* 牛马.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "牛马.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000217 /* NiuMaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NiuMaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000218 /* brand-spec.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = brand-spec.md; sourceTree = "<group>"; };
+		A10000000000000000000219 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		A1000000000000000000021A /* LoginField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Login/LoginField.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000401 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000402 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000000000000000000501 = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000502 /* NiuMa */,
+				A10000000000000000000503 /* NiuMaTests */,
+				A10000000000000000000218 /* brand-spec.md */,
+				A10000000000000000000219 /* README.md */,
+				A10000000000000000000504 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10000000000000000000502 /* NiuMa */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000201,
+				A10000000000000000000202,
+				A10000000000000000000203,
+				A10000000000000000000204,
+				A10000000000000000000205,
+				A10000000000000000000206,
+				A10000000000000000000207,
+				A10000000000000000000208,
+				A10000000000000000000209,
+				A1000000000000000000020A,
+				A1000000000000000000020B,
+				A1000000000000000000020C,
+				A1000000000000000000020D,
+				A1000000000000000000020E,
+				A1000000000000000000020F,
+				A10000000000000000000210,
+				A10000000000000000000211,
+				A10000000000000000000212,
+				A10000000000000000000213,
+				A10000000000000000000214,
+				A1000000000000000000021A,
+			);
+			path = NiuMa;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000503 /* NiuMaTests */ = {
+			isa = PBXGroup;
+			children = (A10000000000000000000215,);
+			path = NiuMaTests;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000504 /* Products */ = {
+			isa = PBXGroup;
+			children = (A10000000000000000000216, A10000000000000000000217,);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000000000000000000601 /* NiuMa */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000802;
+			buildPhases = (A10000000000000000000411, A10000000000000000000401, A10000000000000000000421,);
+			buildRules = ();
+			dependencies = ();
+			name = NiuMa;
+			productName = NiuMa;
+			productReference = A10000000000000000000216;
+			productType = "com.apple.product-type.application";
+		};
+		A10000000000000000000602 /* NiuMaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000803;
+			buildPhases = (A10000000000000000000412, A10000000000000000000402, A10000000000000000000422,);
+			buildRules = ();
+			dependencies = (A10000000000000000000302,);
+			name = NiuMaTests;
+			productName = NiuMaTests;
+			productReference = A10000000000000000000217;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000000000000000000901 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A10000000000000000000601 = { CreatedOnToolsVersion = 16.0; };
+					A10000000000000000000602 = { CreatedOnToolsVersion = 16.0; TestTargetID = A10000000000000000000601; };
+				};
+			};
+			buildConfigurationList = A10000000000000000000801;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = zh_CN;
+			hasScannedForEncodings = 0;
+			knownRegions = (zh_CN, en, Base,);
+			mainGroup = A10000000000000000000501;
+			productRefGroup = A10000000000000000000504;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (A10000000000000000000601, A10000000000000000000602,);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10000000000000000000421 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000113,); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000422 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000411 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000101,
+				A10000000000000000000102,
+				A10000000000000000000103,
+				A10000000000000000000104,
+				A10000000000000000000105,
+				A10000000000000000000106,
+				A10000000000000000000107,
+				A10000000000000000000108,
+				A10000000000000000000109,
+				A1000000000000000000010A,
+				A1000000000000000000010B,
+				A1000000000000000000010C,
+				A1000000000000000000010D,
+				A1000000000000000000010E,
+				A1000000000000000000010F,
+				A10000000000000000000110,
+				A10000000000000000000111,
+				A10000000000000000000112,
+				A10000000000000000000115,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000412 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000114,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A10000000000000000000302 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = A10000000000000000000601; targetProxy = A10000000000000000000301; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A10000000000000000000701 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES; GCC_C_LANGUAGE_STANDARD = gnu17; GCC_OPTIMIZATION_LEVEL = 0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = iphoneos; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+		A10000000000000000000702 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; ENABLE_NS_ASSERTIONS = NO; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; VALIDATE_PRODUCT = YES; }; name = Release; };
+		A10000000000000000000703 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; ENABLE_PREVIEWS = YES; ENABLE_USER_SCRIPT_SANDBOXING = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NiuMa/Resources/Info.plist; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace; PRODUCT_MODULE_NAME = NiuMa; PRODUCT_NAME = "牛马"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		A10000000000000000000704 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; ENABLE_PREVIEWS = YES; ENABLE_USER_SCRIPT_SANDBOXING = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NiuMa/Resources/Info.plist; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace; PRODUCT_MODULE_NAME = NiuMa; PRODUCT_NAME = "牛马"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+		A10000000000000000000705 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace.tests; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/牛马.app/牛马"; }; name = Debug; };
+		A10000000000000000000706 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace.tests; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/牛马.app/牛马"; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000000000000000000801 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000701, A10000000000000000000702,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A10000000000000000000802 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000703, A10000000000000000000704,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A10000000000000000000803 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000705, A10000000000000000000706,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000000000000000000901 /* Project object */;
+}

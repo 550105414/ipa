@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1786253395640,
+      "tag": "0000_groovy_shooting_star",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786254516485,
+      "tag": "0001_living_ink",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786273984723,
+      "tag": "0002_living_layla_miller",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786277098551,
+      "tag": "0003_rainy_overlord",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786284418592,
+      "tag": "0004_silly_stardust",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786286900000,
+      "tag": "0005_cleanup_machine_feature_test",
+      "breakpoints": true
+    }
+  ]
+}

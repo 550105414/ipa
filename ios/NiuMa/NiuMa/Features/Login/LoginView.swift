@@ -33,5 +33,5 @@ struct LoginView: View {
 
 #Preview {
     LoginView()
-        .environment(SessionStore())
+        .environmentObject(SessionStore())
 }

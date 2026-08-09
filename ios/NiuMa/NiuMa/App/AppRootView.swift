@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AppRootView: View {
-    @Environment(SessionStore.self) private var session
+    @EnvironmentObject private var session: SessionStore
 
     var body: some View {
         Group {
@@ -18,5 +18,5 @@ struct AppRootView: View {
 
 #Preview {
     AppRootView()
-        .environment(SessionStore())
+        .environmentObject(SessionStore())
 }

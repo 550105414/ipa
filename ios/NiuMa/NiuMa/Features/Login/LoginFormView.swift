@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LoginFormView: View {
-    @Environment(SessionStore.self) private var session
+    @EnvironmentObject private var session: SessionStore
     @FocusState private var focusedField: LoginField?
     @State private var account = ""
     @State private var password = ""
@@ -25,7 +25,7 @@ struct LoginFormView: View {
                     .padding(.horizontal, AppTheme.mediumSpacing)
                     .frame(minHeight: 52)
                     .background(AppTheme.paper)
-                    .clipShape(.rect(cornerRadius: AppTheme.mediumRadius))
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.mediumRadius))
                     .overlay {
                         RoundedRectangle(cornerRadius: AppTheme.mediumRadius)
                             .stroke(AppTheme.hairline, lineWidth: 1)
@@ -45,7 +45,7 @@ struct LoginFormView: View {
                     .padding(.horizontal, AppTheme.mediumSpacing)
                     .frame(minHeight: 52)
                     .background(AppTheme.paper)
-                    .clipShape(.rect(cornerRadius: AppTheme.mediumRadius))
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.mediumRadius))
                     .overlay {
                         RoundedRectangle(cornerRadius: AppTheme.mediumRadius)
                             .stroke(AppTheme.hairline, lineWidth: 1)
@@ -75,7 +75,7 @@ struct LoginFormView: View {
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .foregroundStyle(AppTheme.surface)
                 .background(session.isLockedOut ? AppTheme.mutedInk : AppTheme.brass)
-                .clipShape(.rect(cornerRadius: AppTheme.mediumRadius))
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.mediumRadius))
             }
             .buttonStyle(.plain)
             .disabled(account.isEmpty || password.isEmpty || session.isSigningIn || session.isLockedOut)
@@ -88,7 +88,7 @@ struct LoginFormView: View {
         }
         .padding(AppTheme.largeSpacing)
         .background(AppTheme.surface)
-        .clipShape(.rect(cornerRadius: AppTheme.largeRadius))
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.largeRadius))
         .overlay {
             RoundedRectangle(cornerRadius: AppTheme.largeRadius)
                 .stroke(AppTheme.hairline, lineWidth: 1)

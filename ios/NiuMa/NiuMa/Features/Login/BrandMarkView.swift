@@ -11,7 +11,7 @@ struct BrandMarkView: View {
                 .foregroundStyle(AppTheme.surface)
                 .frame(width: compact ? 40 : 48, height: compact ? 40 : 48)
                 .background(AppTheme.brass)
-                .clipShape(.rect(cornerRadius: AppTheme.mediumRadius))
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.mediumRadius))
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {

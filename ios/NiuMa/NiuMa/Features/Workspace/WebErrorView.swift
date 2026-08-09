@@ -27,12 +27,12 @@ struct WebErrorView: View {
                 .foregroundStyle(AppTheme.surface)
                 .frame(minWidth: 160, minHeight: 48)
                 .background(AppTheme.brass)
-                .clipShape(.rect(cornerRadius: AppTheme.mediumRadius))
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.mediumRadius))
         }
         .padding(AppTheme.largeSpacing)
         .frame(maxWidth: 420)
         .background(AppTheme.surface)
-        .clipShape(.rect(cornerRadius: AppTheme.largeRadius))
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.largeRadius))
         .overlay {
             RoundedRectangle(cornerRadius: AppTheme.largeRadius)
                 .stroke(AppTheme.hairline, lineWidth: 1)

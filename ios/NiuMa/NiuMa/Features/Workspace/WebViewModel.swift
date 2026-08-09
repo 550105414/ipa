@@ -1,13 +1,11 @@
-import Observation
+import Combine
 import WebKit
 
 @MainActor
-@Observable
-final class WebViewModel {
-    private(set) var isLoading = true
-    private(set) var canGoBack = false
-    var errorMessage: String?
-    @ObservationIgnored
+final class WebViewModel: ObservableObject {
+    @Published private(set) var isLoading = true
+    @Published private(set) var canGoBack = false
+    @Published var errorMessage: String?
     weak var webView: WKWebView?
 
     func attach(_ webView: WKWebView) {

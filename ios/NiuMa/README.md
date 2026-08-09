@@ -1,6 +1,6 @@
 # 牛马 iOS 个人版
 
-这是销售工作台的原生 iOS 外壳。App 名称为“牛马”，Bundle ID 为 `com.xiaoke.salesworkspace`，最低系统版本为 iOS 17。
+这是销售工作台的原生 iOS 外壳。App 名称为“牛马”，Bundle ID 为 `com.xiaoke.salesworkspace`，最低系统版本为 iOS 16.0（支持 iOS 16.2）。
 
 ## 已包含
 

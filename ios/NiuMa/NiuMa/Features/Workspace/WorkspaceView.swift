@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct WorkspaceView: View {
-    @State private var model = WebViewModel()
+    @StateObject private var model = WebViewModel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,5 +23,5 @@ struct WorkspaceView: View {
 
 #Preview {
     WorkspaceView()
-        .environment(SessionStore())
+        .environmentObject(SessionStore())
 }

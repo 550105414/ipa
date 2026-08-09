@@ -1,9 +1,8 @@
-import Observation
+import Combine
 import SwiftUI
 
 @MainActor
-@Observable
-final class SessionStore {
+final class SessionStore: ObservableObject {
     private let credentialVerifier = CredentialVerifier(configuration: .current)
     private let maximumFailedAttempts = 5
     private let lockoutDuration: Duration = .seconds(60)
@@ -12,10 +11,10 @@ final class SessionStore {
     private var backgroundedAt: Date?
     private var lockoutTask: Task<Void, Never>?
 
-    private(set) var isAuthenticated = false
-    private(set) var isSigningIn = false
-    private(set) var lockoutEndsAt: Date?
-    var errorMessage: String?
+    @Published private(set) var isAuthenticated = false
+    @Published private(set) var isSigningIn = false
+    @Published private(set) var lockoutEndsAt: Date?
+    @Published var errorMessage: String?
 
     var isLockedOut: Bool {
         guard let lockoutEndsAt else {

@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct WorkspaceToolbarView: View {
-    @Environment(SessionStore.self) private var session
-    let model: WebViewModel
+    @EnvironmentObject private var session: SessionStore
+    @ObservedObject var model: WebViewModel
 
     var body: some View {
         HStack(spacing: AppTheme.smallSpacing) {

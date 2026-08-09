@@ -3,14 +3,14 @@ import SwiftUI
 @main
 struct NiuMaApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var session = SessionStore()
+    @StateObject private var session = SessionStore()
 
     var body: some Scene {
         WindowGroup {
             AppRootView()
-                .environment(session)
+                .environmentObject(session)
                 .tint(AppTheme.brass)
-                .onChange(of: scenePhase) { _, newPhase in
+                .onChange(of: scenePhase) { newPhase in
                     session.handleScenePhase(newPhase)
                 }
         }

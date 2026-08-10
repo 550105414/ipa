@@ -7,21 +7,24 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-ipa-${{ github.ref }}
+  group: ios-trollstore-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-ios-ipa:
-    name: Build signed IPA
+    name: Build TrollStore IPA
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
         working-directory: mobile/CardWorkbench
     env:
       BUNDLE_ID: com.xiaoke.salesworkspace
+      WIDGET_BUNDLE_ID: com.xiaoke.salesworkspace.TodoWidget
+      APP_GROUP_ID: group.com.xiaoke.salesworkspace
       SCHEME: CardWorkbench
+      WIDGET_TARGET: ExpoWidgetsTarget
 
     steps:
       - name: Checkout
@@ -37,7 +40,12 @@ jobs:
       - name: Prepare build directories
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/artifacts" "$RUNNER_TEMP/build" "$RUNNER_TEMP/logs-raw" "$RUNNER_TEMP/logs"
+          mkdir -p \
+            "$RUNNER_TEMP/artifacts" \
+            "$RUNNER_TEMP/logs-raw" \
+            "$RUNNER_TEMP/logs" \
+            "$RUNNER_TEMP/package/Payload" \
+            "$RUNNER_TEMP/verify"
 
       - name: Install dependencies
         run: npm ci
@@ -82,124 +90,7 @@ jobs:
           pod --version
           xcodebuild -version
 
-      - name: Install and validate Apple signing assets
-        id: signing
-        env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-
-          missing=()
-          for name in \
-            BUILD_CERTIFICATE_BASE64 \
-            P12_PASSWORD \
-            BUILD_PROVISION_PROFILE_BASE64 \
-            KEYCHAIN_PASSWORD \
-            APPLE_TEAM_ID
-          do
-            if [[ -z "${!name:-}" ]]; then
-              missing+=("$name")
-            fi
-          done
-
-          if (( ${#missing[@]} > 0 )); then
-            echo "Missing required GitHub Actions Secrets: ${missing[*]}" >&2
-            exit 1
-          fi
-
-          if [[ ! "$APPLE_TEAM_ID" =~ ^[A-Za-z0-9]{10}$ ]]; then
-            echo "APPLE_TEAM_ID must contain exactly 10 letters or digits." >&2
-            exit 1
-          fi
-
-          certificate_path="$RUNNER_TEMP/build-certificate.p12"
-          profile_path="$RUNNER_TEMP/build.mobileprovision"
-          profile_plist="$RUNNER_TEMP/profile.plist"
-          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
-
-          printf '%s' "$BUILD_CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$certificate_path"
-          printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | /usr/bin/base64 -D > "$profile_path"
-          test -s "$certificate_path"
-          test -s "$profile_path"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
-          security set-keychain-settings -lut 21600 "$keychain_path"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
-          security import "$certificate_path" \
-            -P "$P12_PASSWORD" \
-            -A \
-            -t cert \
-            -f pkcs12 \
-            -k "$keychain_path"
-          security set-key-partition-list \
-            -S apple-tool:,apple: \
-            -s \
-            -k "$KEYCHAIN_PASSWORD" \
-            "$keychain_path"
-          security list-keychains -d user -s "$keychain_path"
-
-          if ! security find-identity -v -p codesigning "$keychain_path" \
-            | grep -Eq '"Apple Distribution'; then
-            echo "No valid Apple Distribution signing identity was found in the certificate." >&2
-            exit 1
-          fi
-
-          security cms -D -i "$profile_path" > "$profile_plist"
-          profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
-          profile_team_id="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")"
-          entitlement_team_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.team-identifier' "$profile_plist")"
-          profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
-          profile_bundle_id="${profile_app_id#*.}"
-
-          if [[ ! "$profile_uuid" =~ ^[A-Fa-f0-9-]+$ ]]; then
-            echo "Provisioning Profile UUID is invalid." >&2
-            exit 1
-          fi
-
-          if [[ "$profile_team_id" != "$APPLE_TEAM_ID" ||
-                "$entitlement_team_id" != "$APPLE_TEAM_ID" ]]; then
-            echo "Provisioning Profile Team ID does not match APPLE_TEAM_ID." >&2
-            exit 1
-          fi
-
-          if [[ "$profile_bundle_id" != "$BUNDLE_ID" ]]; then
-            echo "Provisioning Profile Bundle Identifier does not match $BUNDLE_ID." >&2
-            exit 1
-          fi
-
-          python3 - "$profile_plist" <<'PY'
-          import datetime
-          import plistlib
-          import sys
-
-          with open(sys.argv[1], "rb") as source:
-              profile = plistlib.load(source)
-
-          devices = profile.get("ProvisionedDevices")
-          if not isinstance(devices, list) or not devices:
-              raise SystemExit("Provisioning Profile is not an Ad Hoc profile.")
-
-          if profile.get("Entitlements", {}).get("get-task-allow") is not False:
-              raise SystemExit("Provisioning Profile must use distribution signing.")
-
-          expiration = profile.get("ExpirationDate")
-          if not isinstance(expiration, datetime.datetime) or expiration <= datetime.datetime.utcnow():
-              raise SystemExit("Provisioning Profile is expired or has no valid expiration date.")
-          PY
-
-          legacy_profiles="$HOME/Library/MobileDevice/Provisioning Profiles"
-          xcode_profiles="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
-          mkdir -p "$legacy_profiles" "$xcode_profiles"
-          cp "$profile_path" "$legacy_profiles/$profile_uuid.mobileprovision"
-          cp "$profile_path" "$xcode_profiles/$profile_uuid.mobileprovision"
-
-          echo "profile_uuid=$profile_uuid" >> "$GITHUB_OUTPUT"
-
-      - name: Detect Xcode workspace and validate project settings
+      - name: Detect workspace and validate generated targets
         id: xcode_project
         run: |
           set -euo pipefail
@@ -211,6 +102,13 @@ jobs:
           fi
 
           workspace="$(find ios -maxdepth 1 -type d -name '*.xcworkspace' -print)"
+          project_count="$(find ios -maxdepth 1 -type d -name '*.xcodeproj' | wc -l | tr -d ' ')"
+          if [[ "$project_count" != "1" ]]; then
+            echo "Expected exactly one .xcodeproj, found $project_count." >&2
+            exit 1
+          fi
+          project="$(find ios -maxdepth 1 -type d -name '*.xcodeproj' -print)"
+
           xcodebuild -workspace "$workspace" -list \
             2>&1 | tee "$RUNNER_TEMP/logs-raw/xcode-project.log"
 
@@ -226,42 +124,73 @@ jobs:
             -sdk iphoneos \
             -showBuildSettings \
             -json \
-            > "$RUNNER_TEMP/logs-raw/xcode-build-settings.log"
+            > "$RUNNER_TEMP/logs-raw/xcode-app-build-settings.log"
 
-          python3 - "$RUNNER_TEMP/logs-raw/xcode-build-settings.log" \
-            "$SCHEME" "$BUNDLE_ID" <<'PY'
+          xcodebuild \
+            -project "$project" \
+            -target "$WIDGET_TARGET" \
+            -configuration Release \
+            -sdk iphoneos \
+            -showBuildSettings \
+            -json \
+            > "$RUNNER_TEMP/logs-raw/xcode-widget-build-settings.log"
+
+          python3 - "$RUNNER_TEMP/logs-raw/xcode-app-build-settings.log" \
+            "$RUNNER_TEMP/logs-raw/xcode-widget-build-settings.log" \
+            "$SCHEME" "$BUNDLE_ID" "$WIDGET_TARGET" "$WIDGET_BUNDLE_ID" <<'PY'
           import json
           import sys
 
-          settings_path, target_name, bundle_id = sys.argv[1:]
-          with open(settings_path, encoding="utf-8") as source:
-              entries = json.load(source)
+          app_path, widget_path, app_target, app_bundle, widget_target, widget_bundle = sys.argv[1:]
+          expected = (
+              (app_path, app_target, app_bundle),
+              (widget_path, widget_target, widget_bundle),
+          )
+          for settings_path, target_name, bundle_id in expected:
+              with open(settings_path, encoding="utf-8") as source:
+                  entries = json.load(source)
+              matches = [entry for entry in entries if entry.get("target") == target_name]
+              if len(matches) != 1:
+                  raise SystemExit(
+                      f"Expected one build-settings entry for {target_name}, found {len(matches)}."
+                  )
 
-          matches = [entry for entry in entries if entry.get("target") == target_name]
-          if len(matches) != 1:
-              raise SystemExit(
-                  f"Expected one build-settings entry for {target_name}, found {len(matches)}."
-              )
-
-          settings = matches[0].get("buildSettings", {})
-          actual_bundle_id = settings.get("PRODUCT_BUNDLE_IDENTIFIER")
-          deployment_target = settings.get("IPHONEOS_DEPLOYMENT_TARGET")
-          if actual_bundle_id != bundle_id:
-              raise SystemExit(
-                  f"Generated Xcode Bundle Identifier is {actual_bundle_id!r}, expected {bundle_id!r}."
-              )
-          if deployment_target != "16.1":
-              raise SystemExit(
-                  f"Generated Xcode deployment target is {deployment_target!r}, expected '16.1'."
-              )
+              settings = matches[0].get("buildSettings", {})
+              actual_bundle = settings.get("PRODUCT_BUNDLE_IDENTIFIER")
+              deployment_target = settings.get("IPHONEOS_DEPLOYMENT_TARGET")
+              if actual_bundle != bundle_id:
+                  raise SystemExit(
+                      f"{target_name} bundle is {actual_bundle!r}, expected {bundle_id!r}."
+                  )
+              if deployment_target != "16.1":
+                  raise SystemExit(
+                      f"{target_name} deployment target is {deployment_target!r}, expected '16.1'."
+                  )
           PY
 
-          echo "workspace=$workspace" >> "$GITHUB_OUTPUT"
+          main_entitlements="ios/$SCHEME/$SCHEME.entitlements"
+          widget_entitlements="ios/$WIDGET_TARGET/$WIDGET_TARGET.entitlements"
+          test -s "$main_entitlements"
+          test -s "$widget_entitlements"
 
-      - name: Archive CardWorkbench
+          for entitlements in "$main_entitlements" "$widget_entitlements"; do
+            actual_group="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$entitlements")"
+            if [[ "$actual_group" != "$APP_GROUP_ID" ]]; then
+              echo "App Group entitlement is missing or incorrect in $entitlements." >&2
+              exit 1
+            fi
+            if /usr/libexec/PlistBuddy -c 'Print :aps-environment' "$entitlements" >/dev/null 2>&1; then
+              echo "Unexpected push notification entitlement in $entitlements." >&2
+              exit 1
+            fi
+          done
+
+          echo "workspace=$workspace" >> "$GITHUB_OUTPUT"
+          echo "main_entitlements=$main_entitlements" >> "$GITHUB_OUTPUT"
+          echo "widget_entitlements=$widget_entitlements" >> "$GITHUB_OUTPUT"
+
+      - name: Build unsigned Release app for iPhone
         env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          PROFILE_UUID: ${{ steps.signing.outputs.profile_uuid }}
           WORKSPACE: ${{ steps.xcode_project.outputs.workspace }}
         run: |
           set -euo pipefail
@@ -270,118 +199,306 @@ jobs:
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
+            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/build/CardWorkbench.xcarchive" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/app-signing.keychain-db" \
-            clean archive \
-            2>&1 | tee "$RUNNER_TEMP/logs-raw/xcodebuild-archive.log"
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            DEVELOPMENT_TEAM= \
+            PROVISIONING_PROFILE_SPECIFIER= \
+            clean build \
+            2>&1 | tee "$RUNNER_TEMP/logs-raw/xcodebuild-device.log"
 
-          test -d "$RUNNER_TEMP/build/CardWorkbench.xcarchive"
-
-          app_count="$(find "$RUNNER_TEMP/build/CardWorkbench.xcarchive/Products/Applications" \
-            -maxdepth 1 -type d -name '*.app' | wc -l | tr -d ' ')"
-          if [[ "$app_count" != "1" ]]; then
-            echo "Expected exactly one archived .app, found $app_count." >&2
-            exit 1
-          fi
-
-          archived_app="$(find "$RUNNER_TEMP/build/CardWorkbench.xcarchive/Products/Applications" \
-            -maxdepth 1 -type d -name '*.app' -print)"
-          codesign --verify --deep --strict "$archived_app"
-
-      - name: Create ExportOptions.plist
-        id: export_options
+      - name: Prepare and certificate-free sign TrollStore app
         env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          PROFILE_UUID: ${{ steps.signing.outputs.profile_uuid }}
+          MAIN_ENTITLEMENTS: ${{ steps.xcode_project.outputs.main_entitlements }}
+          WIDGET_ENTITLEMENTS: ${{ steps.xcode_project.outputs.widget_entitlements }}
         run: |
           set -euo pipefail
 
-          xcodebuild -help > "$RUNNER_TEMP/xcodebuild-help.txt" 2>&1
-          if grep -q 'release-testing' "$RUNNER_TEMP/xcodebuild-help.txt"; then
-            export_method="release-testing"
-          else
-            export_method="ad-hoc"
+          products="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos"
+          app_count="$(find "$products" -maxdepth 1 -type d -name '*.app' | wc -l | tr -d ' ')"
+          if [[ "$app_count" != "1" ]]; then
+            echo "Expected one Release-iphoneos app, found $app_count." >&2
+            exit 1
           fi
 
-          python3 - "$RUNNER_TEMP/ExportOptions.plist" \
-            "$export_method" "$APPLE_TEAM_ID" "$BUNDLE_ID" "$PROFILE_UUID" <<'PY'
+          built_app="$(find "$products" -maxdepth 1 -type d -name '*.app' -print)"
+          packaged_app="$RUNNER_TEMP/package/Payload/CardWorkbench.app"
+          ditto "$built_app" "$packaged_app"
+
+          find "$packaged_app" -type d -name '_CodeSignature' -prune -exec rm -rf -- {} +
+          find "$packaged_app" -type f \( -name 'CodeResources' -o -name 'embedded.mobileprovision' \) -delete
+
+          actual_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$packaged_app/Info.plist")"
+          minimum_os="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$packaged_app/Info.plist")"
+          executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$packaged_app/Info.plist")"
+          if [[ "$actual_bundle" != "$BUNDLE_ID" || "$minimum_os" != "16.1" ]]; then
+            echo "Packaged app Bundle ID or MinimumOSVersion is incorrect." >&2
+            exit 1
+          fi
+          test -x "$packaged_app/$executable_name"
+
+          if [[ ! -d "$packaged_app/PlugIns" ]]; then
+            echo "The built app does not contain a PlugIns directory." >&2
+            exit 1
+          fi
+          widget_count="$(find "$packaged_app/PlugIns" -maxdepth 1 -type d -name '*.appex' | wc -l | tr -d ' ')"
+          if [[ "$widget_count" != "1" ]]; then
+            echo "Expected one embedded widget extension, found $widget_count." >&2
+            exit 1
+          fi
+          widget_app="$(find "$packaged_app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print)"
+          widget_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$widget_app/Info.plist")"
+          widget_minimum_os="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$widget_app/Info.plist")"
+          if [[ "$widget_bundle" != "$WIDGET_BUNDLE_ID" || "$widget_minimum_os" != "16.1" ]]; then
+            echo "Widget Bundle ID or MinimumOSVersion is incorrect." >&2
+            exit 1
+          fi
+          widget_runtime="$widget_app/ExpoWidgets.bundle/ExpoWidgets.bundle"
+          if [[ ! -s "$widget_runtime" ]]; then
+            echo "ExpoWidgets JS runtime is missing or empty: $widget_runtime" >&2
+            exit 1
+          fi
+
+          python3 - "$packaged_app" "$MAIN_ENTITLEMENTS" "$WIDGET_ENTITLEMENTS" <<'PY'
+          import os
+          import plistlib
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          app = Path(sys.argv[1])
+          main_entitlements = Path(sys.argv[2])
+          widget_entitlements = Path(sys.argv[3])
+          runner_temp = Path(os.environ["RUNNER_TEMP"])
+          expected_group = "group.com.xiaoke.salesworkspace"
+          fallback_entitlements = {
+              "application-identifier": "TROLLTROLL.*",
+              "com.apple.developer.team-identifier": "TROLLTROLL",
+              "get-task-allow": True,
+              "keychain-access-groups": ["TROLLTROLL.*", "com.apple.token"],
+          }
+
+          def prepare_entitlements(source: Path, destination: Path, name: str) -> Path:
+              with source.open("rb") as input_file:
+                  values = plistlib.load(input_file)
+              if values.get("com.apple.security.application-groups") != [expected_group]:
+                  raise SystemExit(f"Unexpected {name} App Group entitlements.")
+              if "aps-environment" in values:
+                  raise SystemExit(f"Unexpected {name} push entitlement.")
+              values.update(fallback_entitlements)
+              with destination.open("wb") as output_file:
+                  plistlib.dump(values, output_file, sort_keys=True)
+              return destination
+
+          main_signing_entitlements = prepare_entitlements(
+              main_entitlements,
+              runner_temp / "main-trollstore-entitlements.plist",
+              "app",
+          )
+          widget_signing_entitlements = prepare_entitlements(
+              widget_entitlements,
+              runner_temp / "widget-trollstore-entitlements.plist",
+              "widget",
+          )
+
+          def depth(path: Path) -> int:
+              return len(path.relative_to(app).parts)
+
+          def sign(path: Path, entitlements=None) -> None:
+              command = [
+                  "/usr/bin/codesign",
+                  "--force",
+                  "--sign",
+                  "-",
+                  "--timestamp=none",
+                  "--generate-entitlement-der",
+              ]
+              if entitlements is not None:
+                  command.extend(["--entitlements", str(entitlements)])
+              command.append(str(path))
+              subprocess.run(command, check=True)
+
+          macho_files = []
+          for path in app.rglob("*"):
+              if not path.is_file() or path.is_symlink():
+                  continue
+              result = subprocess.run(
+                  ["/usr/bin/file", "-b", str(path)],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              if "Mach-O" in result.stdout:
+                  macho_files.append(path)
+
+          for path in sorted(macho_files, key=depth, reverse=True):
+              sign(path)
+
+          bundle_suffixes = {".framework", ".appex", ".xpc", ".app"}
+          bundles = [
+              path
+              for path in app.rglob("*")
+              if path.is_dir() and path.suffix in bundle_suffixes and path != app
+          ]
+          for path in sorted(bundles, key=depth, reverse=True):
+              entitlements = widget_signing_entitlements if path.suffix == ".appex" else None
+              sign(path, entitlements)
+
+          sign(app, main_signing_entitlements)
+          PY
+
+      - name: Verify certificate-free app bundle
+        run: |
+          set -euo pipefail
+
+          app="$RUNNER_TEMP/package/Payload/CardWorkbench.app"
+          widget="$(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print)"
+          executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
+          executable="$app/$executable_name"
+
+          codesign --verify --deep --strict --verbose=4 "$app" \
+            2>&1 | tee "$RUNNER_TEMP/logs-raw/codesign-verify.log"
+          codesign -dv --verbose=4 "$app" \
+            2>&1 | tee "$RUNNER_TEMP/logs-raw/codesign-app.log"
+          codesign -dv --verbose=4 "$widget" \
+            2>&1 | tee "$RUNNER_TEMP/logs-raw/codesign-widget.log"
+
+          grep -q '^Signature=adhoc$' "$RUNNER_TEMP/logs-raw/codesign-app.log"
+          grep -q '^Signature=adhoc$' "$RUNNER_TEMP/logs-raw/codesign-widget.log"
+          if grep -q '^Authority=' "$RUNNER_TEMP/logs-raw/codesign-app.log" || \
+             grep -q '^Authority=' "$RUNNER_TEMP/logs-raw/codesign-widget.log"; then
+            echo "The app or widget unexpectedly contains a certificate authority chain." >&2
+            exit 1
+          fi
+
+          codesign -d --entitlements :- "$app" \
+            > "$RUNNER_TEMP/app-entitlements.plist" 2>> "$RUNNER_TEMP/logs-raw/codesign-app.log"
+          codesign -d --entitlements :- "$widget" \
+            > "$RUNNER_TEMP/widget-entitlements.plist" 2>> "$RUNNER_TEMP/logs-raw/codesign-widget.log"
+          python3 - "$RUNNER_TEMP/app-entitlements.plist" \
+            "$RUNNER_TEMP/widget-entitlements.plist" "$APP_GROUP_ID" <<'PY'
           import plistlib
           import sys
 
-          destination, method, team_id, bundle_id, profile_uuid = sys.argv[1:]
-          options = {
-              "destination": "export",
-              "method": method,
-              "provisioningProfiles": {bundle_id: profile_uuid},
-              "signingCertificate": "Apple Distribution",
-              "signingStyle": "manual",
-              "stripSwiftSymbols": True,
-              "teamID": team_id,
+          app_path, widget_path, expected_group = sys.argv[1:]
+          expected = {
+              "application-identifier": "TROLLTROLL.*",
+              "com.apple.developer.team-identifier": "TROLLTROLL",
+              "get-task-allow": True,
+              "keychain-access-groups": ["TROLLTROLL.*", "com.apple.token"],
+              "com.apple.security.application-groups": [expected_group],
           }
-          with open(destination, "wb") as output:
-              plistlib.dump(options, output)
+          for name, path in (("app", app_path), ("widget", widget_path)):
+              with open(path, "rb") as source:
+                  values = plistlib.load(source)
+              for key, expected_value in expected.items():
+                  if values.get(key) != expected_value:
+                      raise SystemExit(
+                          f"Unexpected signed {name} entitlement {key}: {values.get(key)!r}."
+                      )
+              if "aps-environment" in values:
+                  raise SystemExit(f"Unexpected signed {name} push entitlement.")
           PY
 
-          echo "method=$export_method" >> "$GITHUB_OUTPUT"
+          if ! lipo -archs "$executable" | tr ' ' '\n' | grep -qx 'arm64'; then
+            echo "The main executable does not contain arm64." >&2
+            exit 1
+          fi
+          file "$executable" | tee "$RUNNER_TEMP/logs-raw/macho-main.log"
 
-      - name: Export signed IPA
-        run: |
-          set -euo pipefail
+          python3 - "$executable" <<'PY'
+          import re
+          import subprocess
+          import sys
 
-          xcodebuild \
-            -exportArchive \
-            -archivePath "$RUNNER_TEMP/build/CardWorkbench.xcarchive" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            2>&1 | tee "$RUNNER_TEMP/logs-raw/xcodebuild-export.log"
+          result = subprocess.run(
+              ["/usr/bin/otool", "-l", sys.argv[1]],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+          cryptids = [int(value) for value in re.findall(r"\bcryptid\s+(\d+)", result.stdout)]
+          if any(value != 0 for value in cryptids):
+              raise SystemExit("The main executable is encrypted and cannot be used by TrollStore.")
+          PY
 
-          ipa_count="$(find "$RUNNER_TEMP/export" -maxdepth 1 -type f -name '*.ipa' | wc -l | tr -d ' ')"
-          if [[ "$ipa_count" != "1" ]]; then
-            echo "Expected exactly one IPA, found $ipa_count." >&2
+          if find "$app" -type f -name '*.mobileprovision' -print -quit | grep -q .; then
+            echo "A provisioning profile was unexpectedly embedded." >&2
             exit 1
           fi
 
-          ipa_path="$(find "$RUNNER_TEMP/export" -maxdepth 1 -type f -name '*.ipa' -print)"
-          test -s "$ipa_path"
-          /usr/bin/unzip -t "$ipa_path" >/dev/null
-          cp "$ipa_path" "$RUNNER_TEMP/artifacts/CardWorkbench.ipa"
-          shasum -a 256 "$RUNNER_TEMP/artifacts/CardWorkbench.ipa"
+      - name: Package and re-verify TrollStore IPA
+        run: |
+          set -euo pipefail
 
-      - name: Redact Xcode build logs
+          ipa="$RUNNER_TEMP/artifacts/CardWorkbench-TrollStore.ipa"
+          ditto -c -k --keepParent "$RUNNER_TEMP/package/Payload" "$ipa"
+          test -s "$ipa"
+          /usr/bin/unzip -t "$ipa" >/dev/null
+
+          python3 - "$ipa" <<'PY'
+          import sys
+          import zipfile
+          from pathlib import PurePosixPath
+
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              names = archive.namelist()
+
+          if not names:
+              raise SystemExit("IPA is empty.")
+
+          top_level_apps = set()
+          for name in names:
+              path = PurePosixPath(name)
+              if path.is_absolute() or ".." in path.parts:
+                  raise SystemExit(f"Unsafe IPA path: {name}")
+              if not path.parts or path.parts[0] != "Payload":
+                  raise SystemExit(f"Unexpected IPA root entry: {name}")
+              if len(path.parts) >= 2 and path.parts[1].endswith(".app"):
+                  top_level_apps.add(path.parts[1])
+
+          if top_level_apps != {"CardWorkbench.app"}:
+              raise SystemExit(f"Unexpected top-level apps: {sorted(top_level_apps)}")
+          PY
+
+          ditto -x -k "$ipa" "$RUNNER_TEMP/verify"
+          verified_app="$RUNNER_TEMP/verify/Payload/CardWorkbench.app"
+          test -d "$verified_app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$verified_app/Info.plist")" = "$BUNDLE_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$verified_app/Info.plist")" = "16.1"
+          test -d "$verified_app/PlugIns"
+          verified_widget_count="$(find "$verified_app/PlugIns" -maxdepth 1 -type d -name '*.appex' | wc -l | tr -d ' ')"
+          test "$verified_widget_count" = "1"
+          verified_widget="$(find "$verified_app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print)"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$verified_widget/Info.plist")" = "$WIDGET_BUNDLE_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$verified_widget/Info.plist")" = "16.1"
+          test -s "$verified_widget/ExpoWidgets.bundle/ExpoWidgets.bundle"
+          codesign --verify --deep --strict "$verified_app"
+          codesign --verify --strict "$verified_widget"
+          if find "$verified_app" -type f -name '*.mobileprovision' -print -quit | grep -q .; then
+            echo "The extracted IPA contains a provisioning profile." >&2
+            exit 1
+          fi
+
+          shasum -a 256 "$ipa" | tee "$RUNNER_TEMP/logs-raw/ipa-sha256.log"
+
+      - name: Collect build logs
         if: always()
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          PROFILE_UUID: ${{ steps.signing.outputs.profile_uuid }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-
           for source_log in "$RUNNER_TEMP/logs-raw"/*.log; do
-            target_log="$RUNNER_TEMP/logs/$(basename "$source_log")"
-            if [[ "${APPLE_TEAM_ID:-}" =~ ^[A-Za-z0-9]{10}$ &&
-                  "${PROFILE_UUID:-}" =~ ^[A-Fa-f0-9-]+$ ]]; then
-              sed \
-                -e "s/$APPLE_TEAM_ID/[REDACTED_TEAM_ID]/g" \
-                -e "s/$PROFILE_UUID/[REDACTED_PROFILE_UUID]/g" \
-                "$source_log" > "$target_log"
-            elif [[ "${APPLE_TEAM_ID:-}" =~ ^[A-Za-z0-9]{10}$ ]]; then
-              sed -e "s/$APPLE_TEAM_ID/[REDACTED_TEAM_ID]/g" \
-                "$source_log" > "$target_log"
-            else
-              cp "$source_log" "$target_log"
-            fi
+            cp "$source_log" "$RUNNER_TEMP/logs/$(basename "$source_log")"
           done
 
-      - name: Upload IPA artifact
+      - name: Upload TrollStore IPA artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: CardWorkbench-ipa-${{ github.run_number }}
-          path: ${{ runner.temp }}/artifacts/CardWorkbench.ipa
+          name: CardWorkbench-TrollStore-${{ github.run_number }}
+          path: ${{ runner.temp }}/artifacts/CardWorkbench-TrollStore.ipa
           if-no-files-found: error
           compression-level: 0
           retention-days: 5
@@ -395,27 +512,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 5
 
-      - name: Clean temporary signing files
+      - name: Clean temporary build files
         if: always()
         run: |
           set +e
-          profile_uuid=""
-          if [[ -f "$RUNNER_TEMP/profile.plist" ]]; then
-            profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist" 2>/dev/null)"
-          fi
-
-          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
-
-          if [[ -n "$profile_uuid" ]]; then
-            rm -f -- \
-              "$HOME/Library/MobileDevice/Provisioning Profiles/$profile_uuid.mobileprovision" \
-              "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$profile_uuid.mobileprovision"
-          fi
-
-          rm -f -- \
-            "$RUNNER_TEMP/build-certificate.p12" \
-            "$RUNNER_TEMP/build.mobileprovision" \
-            "$RUNNER_TEMP/profile.plist" \
-            "$RUNNER_TEMP/xcodebuild-help.txt" \
-            "$RUNNER_TEMP/ExportOptions.plist"
-          rm -f -- "$RUNNER_TEMP/logs-raw"/*.log
+          rm -rf -- \
+            "$RUNNER_TEMP/package" \
+             "$RUNNER_TEMP/verify" \
+             "$RUNNER_TEMP/app-entitlements.plist" \
+             "$RUNNER_TEMP/widget-entitlements.plist" \
+             "$RUNNER_TEMP/main-trollstore-entitlements.plist" \
+             "$RUNNER_TEMP/widget-trollstore-entitlements.plist"

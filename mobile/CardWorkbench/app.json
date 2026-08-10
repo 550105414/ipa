@@ -50,7 +50,28 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "./plugins/with-widget-deployment-target",
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "com.xiaoke.salesworkspace.TodoWidget",
+          "groupIdentifier": "group.com.xiaoke.salesworkspace",
+          "enablePushNotifications": false,
+          "widgets": [
+            {
+              "name": "TodoWidget",
+              "displayName": "待办列表",
+              "description": "显示 CardWorkbench 中最新的未完成待办。",
+              "contentMarginsDisabled": true,
+              "supportedFamilies": [
+                "systemSmall",
+                "systemMedium"
+              ]
+            }
+          ]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

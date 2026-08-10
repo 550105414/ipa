@@ -20,6 +20,7 @@ jobs:
         shell: bash
         working-directory: mobile/CardWorkbench
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       BUNDLE_ID: com.xiaoke.salesworkspace
       WIDGET_BUNDLE_ID: com.xiaoke.salesworkspace.TodoWidget
       APP_GROUP_ID: group.com.xiaoke.salesworkspace
@@ -46,6 +47,12 @@ jobs:
             "$RUNNER_TEMP/logs" \
             "$RUNNER_TEMP/package/Payload" \
             "$RUNNER_TEMP/verify"
+
+      - name: Select Xcode 26.3
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
 
       - name: Install dependencies
         run: npm ci

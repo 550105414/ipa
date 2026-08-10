@@ -9,6 +9,7 @@
 - Expo SDK：55
 - React Native：0.83
 - Node.js：20.19.x（GitHub Actions）
+- Xcode：26.3（GitHub `macos-15` Runner 中显式选择）
 - Xcode Scheme：`CardWorkbench`
 - 主 App Bundle Identifier：`com.xiaoke.salesworkspace`
 - 小组件 Bundle Identifier：`com.xiaoke.salesworkspace.TodoWidget`

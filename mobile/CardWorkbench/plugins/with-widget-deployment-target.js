@@ -155,7 +155,8 @@ private struct CardWorkbenchWidgetModel {
     }
 
     let rawTasks = props["tasks"] as? [Any] ?? []
-    let parsedTasks = rawTasks.enumerated().compactMap { index, rawTask in
+    let parsedTasks: [CardWorkbenchWidgetTask] = rawTasks.enumerated().compactMap {
+      index, rawTask -> CardWorkbenchWidgetTask? in
       guard let dictionary = rawTask as? [String: Any] else {
         return nil
       }

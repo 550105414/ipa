@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { NewTodoInput, TodoCategory, TodoTask } from '@/types/todo';
+import type { NewTodoInput, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
 
 const DATABASE_VERSION = 2;
 
@@ -223,6 +223,25 @@ export async function insertTask(database: SQLiteDatabase, input: NewTodoInput) 
     input.categoryId,
     input.isStarred ? 1 : 0,
     input.dueAt,
+  );
+}
+
+export async function updateTask(database: SQLiteDatabase, input: UpdateTodoInput) {
+  await database.runAsync(
+    `UPDATE todo_items
+     SET title = ?,
+         notes = ?,
+         category_id = ?,
+         is_starred = ?,
+         due_at = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    input.title.trim(),
+    input.notes?.trim() || null,
+    input.categoryId,
+    input.isStarred ? 1 : 0,
+    input.dueAt,
+    input.id,
   );
 }
 

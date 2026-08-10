@@ -12,6 +12,7 @@ type TaskRowProps = {
   showCompletedDate?: boolean;
   onToggleCompleted: (id: number) => void;
   onToggleStarred: (id: number) => void;
+  onEditDate?: (id: number) => void;
 };
 
 export function TaskRow({
@@ -21,6 +22,7 @@ export function TaskRow({
   showCompletedDate = false,
   onToggleCompleted,
   onToggleStarred,
+  onEditDate,
 }: TaskRowProps) {
   const isCompleted = Boolean(task.completedAt);
   const dueLabel = formatDueDate(task.dueAt);
@@ -81,18 +83,34 @@ export function TaskRow({
       </View>
 
       <View style={styles.trailing}>
-        <Pressable
-          accessibilityLabel={task.isStarred ? `取消星标：${task.title}` : `添加星标：${task.title}`}
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={() => onToggleStarred(task.id)}
-          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 2 })}>
-          <SymbolIcon
-            name={task.isStarred ? 'star.fill' : 'star'}
-            color={task.isStarred ? task.categoryColor : '#B9B9BF'}
-            size={compact ? 18 : 24}
-          />
-        </Pressable>
+        <View style={styles.trailingActions}>
+          {onEditDate ? (
+            <Pressable
+              accessibilityLabel={`${task.dueAt ? '修改' : '添加'}日期：${task.title}`}
+              accessibilityRole="button"
+              hitSlop={7}
+              onPress={() => onEditDate(task.id)}
+              style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 3 })}>
+              <SymbolIcon
+                name={task.dueAt ? 'calendar.circle.fill' : 'calendar.badge.plus'}
+                color={task.dueAt ? task.categoryColor : colors.secondaryLabel}
+                size={21}
+              />
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityLabel={task.isStarred ? `取消星标：${task.title}` : `添加星标：${task.title}`}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => onToggleStarred(task.id)}
+            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 2 })}>
+            <SymbolIcon
+              name={task.isStarred ? 'star.fill' : 'star'}
+              color={task.isStarred ? task.categoryColor : '#B9B9BF'}
+              size={compact ? 18 : 24}
+            />
+          </Pressable>
+        </View>
         {showCategory ? (
           <Text selectable numberOfLines={1} style={styles.categoryName}>
             {task.categoryName}
@@ -185,6 +203,11 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+  },
+  trailingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 4,
   },
   categoryName: {

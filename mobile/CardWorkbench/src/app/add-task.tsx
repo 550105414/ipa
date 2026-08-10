@@ -1,3 +1,4 @@
+import { DateTimePicker as ExpoDateTimePicker } from '@expo/ui/datetimepicker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -14,7 +15,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SymbolIcon } from '@/components/symbol-icon';
-import { dateKeyFromNow } from '@/lib/date';
+import {
+  dateFromLocalDateKey,
+  dateKeyFromNow,
+  formatDueDate,
+  toLocalDateKey,
+} from '@/lib/date';
 import { useTodos } from '@/providers/todo-provider';
 import { colors, layout } from '@/theme/colors';
 
@@ -34,28 +40,66 @@ const duePresets: DuePreset[] = [
 export default function AddTaskScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ category?: string | string[] }>();
-  const { categories, addTask } = useTodos();
+  const params = useLocalSearchParams<{
+    category?: string | string[];
+    task?: string | string[];
+  }>();
+  const { categories, tasks, addTask, updateTask } = useTodos();
   const requestedCategory = Array.isArray(params.category) ? params.category[0] : params.category;
+  const requestedTask = Array.isArray(params.task) ? params.task[0] : params.task;
+  const taskId = useMemo(() => {
+    if (!requestedTask) {
+      return null;
+    }
+    const parsed = Number(requestedTask);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }, [requestedTask]);
+  const editingTask = useMemo(
+    () => (taskId === null ? null : tasks.find((task) => task.id === taskId) ?? null),
+    [taskId, tasks],
+  );
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [categoryId, setCategoryId] = useState(requestedCategory ?? '');
-  const [selectedDuePreset, setSelectedDuePreset] = useState('none');
+  const [selectedDueDate, setSelectedDueDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [isStarred, setIsStarred] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [didInitializeEditingTask, setDidInitializeEditingTask] = useState(false);
 
   useEffect(() => {
+    if (!editingTask || didInitializeEditingTask) {
+      return;
+    }
+
+    setTitle(editingTask.title);
+    setNotes(editingTask.notes ?? '');
+    setCategoryId(editingTask.categoryId);
+    setSelectedDueDate(dateFromLocalDateKey(editingTask.dueAt));
+    setIsStarred(editingTask.isStarred);
+    setDidInitializeEditingTask(true);
+  }, [didInitializeEditingTask, editingTask]);
+
+  useEffect(() => {
+    if (taskId !== null && !didInitializeEditingTask) {
+      return;
+    }
     if (categories[0] && !categories.some((category) => category.id === categoryId)) {
       setCategoryId(categories[0].id);
     }
-  }, [categories, categoryId]);
+  }, [categories, categoryId, didInitializeEditingTask, taskId]);
 
-  const dueAt = useMemo(() => {
-    const preset = duePresets.find((item) => item.id === selectedDuePreset);
-    return preset?.offset === null || preset?.offset === undefined
-      ? null
-      : dateKeyFromNow(preset.offset);
-  }, [selectedDuePreset]);
+  const dueAt = selectedDueDate ? toLocalDateKey(selectedDueDate) : null;
+  const selectedDuePreset = useMemo(() => {
+    if (!dueAt) {
+      return 'none';
+    }
+    return (
+      duePresets.find(
+        (preset) => preset.offset !== null && dateKeyFromNow(preset.offset) === dueAt,
+      )?.id ?? 'custom'
+    );
+  }, [dueAt]);
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -69,13 +113,22 @@ export default function AddTaskScreen() {
 
     setIsSaving(true);
     try {
-      await addTask({
+      const input = {
         title,
         notes,
         categoryId,
         dueAt,
         isStarred,
-      });
+      };
+      if (taskId !== null) {
+        if (!editingTask) {
+          Alert.alert('待办未找到', '请返回后重新打开这条待办。');
+          return;
+        }
+        await updateTask({ id: taskId, ...input });
+      } else {
+        await addTask(input);
+      }
       router.back();
     } catch (error) {
       Alert.alert('保存失败', error instanceof Error ? error.message : '请稍后重试。');
@@ -104,7 +157,7 @@ export default function AddTaskScreen() {
             <Text style={styles.cancelText}>取消</Text>
           </Pressable>
           <Text selectable style={styles.headerTitle}>
-            新增待办
+            {taskId === null ? '新增待办' : '编辑待办'}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -118,7 +171,7 @@ export default function AddTaskScreen() {
         <View style={styles.formCard}>
           <TextInput
             accessibilityLabel="待办标题"
-            autoFocus
+            autoFocus={taskId === null}
             maxLength={80}
             onChangeText={setTitle}
             placeholder="要做什么？"
@@ -187,7 +240,15 @@ export default function AddTaskScreen() {
                   key={preset.id}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
-                  onPress={() => setSelectedDuePreset(preset.id)}
+                  onPress={() => {
+                    if (preset.offset === null) {
+                      setSelectedDueDate(null);
+                      setShowDatePicker(false);
+                      return;
+                    }
+                    setSelectedDueDate(dateFromLocalDateKey(dateKeyFromNow(preset.offset)));
+                    setShowDatePicker(false);
+                  }}
                   style={({ pressed }) => [
                     styles.dueChip,
                     selected && styles.selectedDueChip,
@@ -204,7 +265,65 @@ export default function AddTaskScreen() {
                 </Pressable>
               );
             })}
+            <Pressable
+              accessibilityLabel="选择自定义日期"
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showDatePicker, selected: selectedDuePreset === 'custom' }}
+              onPress={() => setShowDatePicker((visible) => !visible)}
+              style={({ pressed }) => [
+                styles.dueChip,
+                selectedDuePreset === 'custom' && styles.selectedDueChip,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}>
+              <SymbolIcon
+                name="calendar.badge.plus"
+                color={selectedDuePreset === 'custom' ? colors.blue : colors.secondaryLabel}
+                size={16}
+              />
+              <Text
+                style={[
+                  styles.dueText,
+                  selectedDuePreset === 'custom' && styles.selectedDueText,
+                ]}>
+                {dueAt ? formatDueDate(dueAt) : '选择日期'}
+              </Text>
+            </Pressable>
           </View>
+          {showDatePicker ? (
+            <View style={styles.datePickerCard}>
+              <ExpoDateTimePicker
+                accentColor={colors.blue}
+                display={process.env.EXPO_OS === 'ios' ? 'inline' : 'default'}
+                locale="zh_CN"
+                mode="date"
+                onDismiss={() => setShowDatePicker(false)}
+                onValueChange={(_, date) => {
+                  setSelectedDueDate(date);
+                  if (process.env.EXPO_OS !== 'ios') {
+                    setShowDatePicker(false);
+                  }
+                }}
+                presentation={process.env.EXPO_OS === 'ios' ? 'inline' : 'dialog'}
+                style={styles.datePicker}
+                value={selectedDueDate ?? new Date()}
+              />
+              {selectedDueDate ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setSelectedDueDate(null);
+                    setShowDatePicker(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.clearDateButton,
+                    { opacity: pressed ? 0.55 : 1 },
+                  ]}>
+                  <SymbolIcon name="calendar.badge.minus" color={colors.red} size={16} />
+                  <Text style={styles.clearDateText}>清除日期</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.starCard}>
@@ -237,8 +356,10 @@ export default function AddTaskScreen() {
             styles.primaryButton,
             { opacity: pressed || isSaving ? 0.65 : 1 },
           ]}>
-          <SymbolIcon name="plus" color={colors.white} size={18} />
-          <Text style={styles.primaryButtonText}>{isSaving ? '正在保存…' : '添加待办'}</Text>
+          <SymbolIcon name={taskId === null ? 'plus' : 'checkmark'} color={colors.white} size={18} />
+          <Text style={styles.primaryButtonText}>
+            {isSaving ? '正在保存…' : taskId === null ? '添加待办' : '保存修改'}
+          </Text>
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -366,6 +487,33 @@ const styles = StyleSheet.create({
   },
   selectedDueText: {
     color: colors.blue,
+  },
+  datePickerCard: {
+    overflow: 'hidden',
+    gap: 4,
+    borderRadius: 20,
+    borderCurve: 'continuous',
+    padding: 8,
+    backgroundColor: colors.card,
+    boxShadow: '0 2px 12px rgba(34, 42, 60, 0.05)',
+  },
+  datePicker: {
+    width: '100%',
+  },
+  clearDateButton: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 13,
+    borderCurve: 'continuous',
+    backgroundColor: '#FFF0F1',
+  },
+  clearDateText: {
+    color: colors.red,
+    fontSize: 14,
+    fontWeight: '700',
   },
   starCard: {
     minHeight: 76,

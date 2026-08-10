@@ -7,8 +7,10 @@ import {
   insertTask,
   toggleTaskCompletion,
   toggleTaskStar,
+  updateTask as updateTaskInDatabase,
 } from '@/lib/database';
-import type { NewTodoInput, TodoCategory, TodoTask } from '@/types/todo';
+import { formatDueDate } from '@/lib/date';
+import type { NewTodoInput, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
 import { syncTodoWidget } from '@/widgets/todo-widget';
 
 type TodoContextValue = {
@@ -18,6 +20,7 @@ type TodoContextValue = {
   errorMessage: string | null;
   refresh: () => Promise<void>;
   addTask: (input: NewTodoInput) => Promise<number>;
+  updateTask: (input: UpdateTodoInput) => Promise<void>;
   toggleCompleted: (id: number) => Promise<void>;
   toggleStarred: (id: number) => Promise<void>;
 };
@@ -47,6 +50,7 @@ export function TodoProvider({ children }: PropsWithChildren) {
             color: task.categoryColor,
             completedAt: task.completedAt,
             isStarred: task.isStarred,
+            dueLabel: formatDueDate(task.dueAt),
           })),
         );
       } catch {
@@ -82,6 +86,14 @@ export function TodoProvider({ children }: PropsWithChildren) {
     [database, refresh],
   );
 
+  const updateTask = useCallback(
+    async (input: UpdateTodoInput) => {
+      await updateTaskInDatabase(database, input);
+      await refresh();
+    },
+    [database, refresh],
+  );
+
   const toggleStarred = useCallback(
     async (id: number) => {
       await toggleTaskStar(database, id);
@@ -98,10 +110,21 @@ export function TodoProvider({ children }: PropsWithChildren) {
       errorMessage,
       refresh,
       addTask,
+      updateTask,
       toggleCompleted,
       toggleStarred,
     }),
-    [addTask, categories, errorMessage, isLoading, refresh, tasks, toggleCompleted, toggleStarred],
+    [
+      addTask,
+      categories,
+      errorMessage,
+      isLoading,
+      refresh,
+      tasks,
+      toggleCompleted,
+      toggleStarred,
+      updateTask,
+    ],
   );
 
   return <TodoContext value={value}>{children}</TodoContext>;

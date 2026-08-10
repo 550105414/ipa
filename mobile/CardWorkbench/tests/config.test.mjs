@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
@@ -14,16 +14,22 @@ async function readJson(relativePath) {
 test('Expo iOS release configuration stays pinned', async () => {
   const appConfig = await readJson('app.json');
   const packageJson = await readJson('package.json');
+  const packageLock = await readJson('package-lock.json');
   const buildProperties = appConfig.expo.plugins.find(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties',
   );
 
   assert.equal(appConfig.expo.name, 'CardWorkbench');
+  assert.equal(appConfig.expo.version, '1.0.1');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
+  assert.equal(appConfig.expo.ios.buildNumber, '2');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '个人工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
+  assert.equal(packageJson.version, '1.0.1');
+  assert.equal(packageLock.version, '1.0.1');
+  assert.equal(packageLock.packages[''].version, '1.0.1');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
@@ -40,6 +46,27 @@ test('Expo iOS release configuration stays pinned', async () => {
   assert.equal(widgetPlugin[1].widgets[0].name, 'TodoWidget');
   assert.match(packageJson.dependencies['expo-widgets'], /^~55\./);
   assert.match(packageJson.dependencies['@expo/ui'], /^~55\./);
+});
+
+test('iOS widget implementation wins Metro platform resolution', async () => {
+  const genericTs = new URL('src/widgets/todo-widget.ts', projectRoot);
+  const genericTsx = new URL('src/widgets/todo-widget.tsx', projectRoot);
+  const iosTsx = new URL('src/widgets/todo-widget.ios.tsx', projectRoot);
+  const compatibilityPlugin = await readFile(
+    new URL('plugins/with-widget-deployment-target.js', projectRoot),
+    'utf8',
+  );
+  const iosWidgetSource = await readFile(iosTsx, 'utf8');
+
+  await assert.rejects(access(genericTs));
+  await access(genericTsx);
+  await access(iosTsx);
+  assert.match(iosWidgetSource, /createWidget<TodoWidgetSnapshot>\('TodoWidget'/);
+  assert.match(iosWidgetSource, /TodoWidget\.updateSnapshot\(/);
+  assert.match(compatibilityPlugin, /CardWorkbenchTodoWidgetView/);
+  assert.match(compatibilityPlugin, /TodoWidgetResilientTimelineProvider/);
+  assert.match(compatibilityPlugin, /ENABLE_DEBUG_DYLIB = 'NO'/);
+  assert.match(compatibilityPlugin, /SWIFT_OPTIMIZATION_LEVEL = '\"-O\"'/);
 });
 
 test('generated iOS entitlements keep App Group without push capability', async () => {

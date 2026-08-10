@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -23,6 +24,7 @@ type PlanSectionProps = {
   tasks: TodoTask[];
   onToggleCompleted: (id: number) => void;
   onToggleStarred: (id: number) => void;
+  onEditDate: (id: number) => void;
 };
 
 function PlanSection({
@@ -31,6 +33,7 @@ function PlanSection({
   tasks,
   onToggleCompleted,
   onToggleStarred,
+  onEditDate,
 }: PlanSectionProps) {
   if (tasks.length === 0) {
     return null;
@@ -53,6 +56,7 @@ function PlanSection({
             <TaskRow
               task={task}
               showCategory
+              onEditDate={onEditDate}
               onToggleCompleted={onToggleCompleted}
               onToggleStarred={onToggleStarred}
             />
@@ -64,6 +68,7 @@ function PlanSection({
 }
 
 export default function PlanScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { tasks, isLoading, errorMessage, refresh, toggleCompleted, toggleStarred } = useTodos();
   const pendingTasks = tasks.filter((task) => !task.completedAt);
@@ -96,6 +101,9 @@ export default function PlanScreen() {
                 title={section.title}
                 color={section.color}
                 tasks={pendingTasks.filter((task) => getDueSection(task.dueAt) === section.key)}
+                onEditDate={(id) =>
+                  router.push({ pathname: '/add-task', params: { task: String(id) } })
+                }
                 onToggleCompleted={(id) => void toggleCompleted(id)}
                 onToggleStarred={(id) => void toggleStarred(id)}
               />

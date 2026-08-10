@@ -3,6 +3,7 @@ export type TodoWidgetTask = {
   title: string;
   accent: string;
   starred: boolean;
+  dueLabel?: string | null;
 };
 
 export type TodoWidgetSnapshot = {
@@ -19,4 +20,5 @@ export type WidgetSyncTask = {
   isCompleted?: boolean;
   isStarred?: boolean;
   starred?: boolean;
+  dueLabel?: string | null;
 };

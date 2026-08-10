@@ -26,6 +26,9 @@ jobs:
       APP_GROUP_ID: group.com.xiaoke.salesworkspace
       SCHEME: CardWorkbench
       WIDGET_TARGET: ExpoWidgetsTarget
+      APP_VERSION: 1.0.1
+      APP_BUILD: "2"
+      WIDGET_DISPLAY_NAME: 个人工作台
 
     steps:
       - name: Checkout
@@ -116,6 +119,42 @@ jobs:
           fi
           project="$(find ios -maxdepth 1 -type d -name '*.xcodeproj' -print)"
 
+          widget_source="ios/$WIDGET_TARGET/TodoWidget.swift"
+          test -s "$widget_source"
+          python3 - "$widget_source" "ios/$WIDGET_TARGET" <<'PY'
+          import sys
+          from pathlib import Path
+
+          widget_source = Path(sys.argv[1])
+          target_directory = Path(sys.argv[2])
+          source = widget_source.read_text(encoding="utf-8")
+          required_markers = (
+              "CardWorkbench native widget fallback",
+              "private struct TodoWidgetResilientTimelineProvider: TimelineProvider {",
+              "provider: TodoWidgetResilientTimelineProvider(name: name)",
+              "CardWorkbenchTodoWidgetView(entry: entry)",
+              'dictionary["dueLabel"] as? String',
+          )
+          for marker in required_markers:
+              count = source.count(marker)
+              if count != 1:
+                  raise SystemExit(
+                      f"Generated widget marker {marker!r} appears {count} times, expected once."
+                  )
+          if "WidgetsEntryView(entry: entry)" in source:
+              raise SystemExit("Generated widget still uses the blank Expo-only entry view.")
+
+          main_count = 0
+          for swift_file in target_directory.glob("*.swift"):
+              main_count += sum(
+                  1
+                  for line in swift_file.read_text(encoding="utf-8").splitlines()
+                  if line.strip() == "@main"
+              )
+          if main_count != 1:
+              raise SystemExit(f"Expected exactly one WidgetKit @main declaration, found {main_count}.")
+          PY
+
           xcodebuild -workspace "$workspace" -list \
             2>&1 | tee "$RUNNER_TEMP/logs-raw/xcode-project.log"
 
@@ -144,11 +183,22 @@ jobs:
 
           python3 - "$RUNNER_TEMP/logs-raw/xcode-app-build-settings.log" \
             "$RUNNER_TEMP/logs-raw/xcode-widget-build-settings.log" \
-            "$SCHEME" "$BUNDLE_ID" "$WIDGET_TARGET" "$WIDGET_BUNDLE_ID" <<'PY'
+            "$SCHEME" "$BUNDLE_ID" "$WIDGET_TARGET" "$WIDGET_BUNDLE_ID" \
+            "$WIDGET_DISPLAY_NAME" "$APP_VERSION" "$APP_BUILD" <<'PY'
           import json
           import sys
 
-          app_path, widget_path, app_target, app_bundle, widget_target, widget_bundle = sys.argv[1:]
+          (
+              app_path,
+              widget_path,
+              app_target,
+              app_bundle,
+              widget_target,
+              widget_bundle,
+              widget_display_name,
+              app_version,
+              app_build,
+          ) = sys.argv[1:]
           expected = (
               (app_path, app_target, app_bundle),
               (widget_path, widget_target, widget_bundle),
@@ -173,6 +223,21 @@ jobs:
                   raise SystemExit(
                       f"{target_name} deployment target is {deployment_target!r}, expected '16.1'."
                   )
+
+              if target_name == widget_target:
+                  widget_expectations = {
+                      "INFOPLIST_KEY_CFBundleDisplayName": widget_display_name,
+                      "ENABLE_DEBUG_DYLIB": "NO",
+                      "SWIFT_OPTIMIZATION_LEVEL": "-O",
+                      "MARKETING_VERSION": app_version,
+                      "CURRENT_PROJECT_VERSION": app_build,
+                  }
+                  for key, expected_value in widget_expectations.items():
+                      actual_value = settings.get(key)
+                      if actual_value != expected_value:
+                          raise SystemExit(
+                              f"Widget {key} is {actual_value!r}, expected {expected_value!r}."
+                          )
           PY
 
           main_entitlements="ios/$SCHEME/$SCHEME.entitlements"
@@ -240,9 +305,12 @@ jobs:
 
           actual_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$packaged_app/Info.plist")"
           minimum_os="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$packaged_app/Info.plist")"
+          app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$packaged_app/Info.plist")"
+          app_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$packaged_app/Info.plist")"
           executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$packaged_app/Info.plist")"
-          if [[ "$actual_bundle" != "$BUNDLE_ID" || "$minimum_os" != "16.1" ]]; then
-            echo "Packaged app Bundle ID or MinimumOSVersion is incorrect." >&2
+          if [[ "$actual_bundle" != "$BUNDLE_ID" || "$minimum_os" != "16.1" || \
+                "$app_version" != "$APP_VERSION" || "$app_build" != "$APP_BUILD" ]]; then
+            echo "Packaged app identity, version, build, or MinimumOSVersion is incorrect." >&2
             exit 1
           fi
           test -x "$packaged_app/$executable_name"
@@ -259,8 +327,28 @@ jobs:
           widget_app="$(find "$packaged_app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print)"
           widget_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$widget_app/Info.plist")"
           widget_minimum_os="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$widget_app/Info.plist")"
-          if [[ "$widget_bundle" != "$WIDGET_BUNDLE_ID" || "$widget_minimum_os" != "16.1" ]]; then
-            echo "Widget Bundle ID or MinimumOSVersion is incorrect." >&2
+          widget_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$widget_app/Info.plist")"
+          widget_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$widget_app/Info.plist")"
+          widget_display_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$widget_app/Info.plist")"
+          widget_extension_point="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$widget_app/Info.plist")"
+          widget_group="$(/usr/libexec/PlistBuddy -c 'Print :ExpoWidgetsAppGroupIdentifier' "$widget_app/Info.plist")"
+          widget_executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$widget_app/Info.plist")"
+          widget_executable="$widget_app/$widget_executable_name"
+          if [[ "$widget_bundle" != "$WIDGET_BUNDLE_ID" || "$widget_minimum_os" != "16.1" || \
+                "$widget_version" != "$APP_VERSION" || "$widget_build" != "$APP_BUILD" || \
+                "$widget_display_name" != "$WIDGET_DISPLAY_NAME" || \
+                "$widget_extension_point" != "com.apple.widgetkit-extension" || \
+                "$widget_group" != "$APP_GROUP_ID" ]]; then
+            echo "Widget identity, display name, version, extension point, or MinimumOSVersion is incorrect." >&2
+            exit 1
+          fi
+          test -x "$widget_executable"
+          if ! lipo -archs "$widget_executable" | tr ' ' '\n' | grep -qx 'arm64'; then
+            echo "The widget executable does not contain arm64." >&2
+            exit 1
+          fi
+          if find "$widget_app" -type f \( -name '*.debug.dylib' -o -name '__preview.dylib' \) -print -quit | grep -q .; then
+            echo "The Release widget contains an Xcode debug-dylib shell." >&2
             exit 1
           fi
           widget_runtime="$widget_app/ExpoWidgets.bundle/ExpoWidgets.bundle"
@@ -268,6 +356,21 @@ jobs:
             echo "ExpoWidgets JS runtime is missing or empty: $widget_runtime" >&2
             exit 1
           fi
+
+          main_bundle="$packaged_app/main.jsbundle"
+          hermes_compiler="$PWD/node_modules/hermes-compiler/hermesc/osx-bin/hermesc"
+          test -s "$main_bundle"
+          test -x "$hermes_compiler"
+          "$hermes_compiler" -b -dump-bytecode "$main_bundle" \
+            > "$RUNNER_TEMP/hermes-bytecode.txt"
+          grep -Fq 'updateSnapshot' "$RUNNER_TEMP/hermes-bytecode.txt"
+          grep -Fq 'createWidget' "$RUNNER_TEMP/hermes-bytecode.txt"
+          grep -Fq 'TodoWidget' "$RUNNER_TEMP/hermes-bytecode.txt"
+          grep -Fq 'syncTodoWidget' "$RUNNER_TEMP/hermes-bytecode.txt"
+          grep -Fq 'dueLabel' "$RUNNER_TEMP/hermes-bytecode.txt"
+          printf '%s\n' \
+            'Verified that the iOS bundle contains the real widget registration and snapshot code.' \
+            > "$RUNNER_TEMP/logs-raw/widget-javascript-validation.log"
 
           python3 - "$packaged_app" "$MAIN_ENTITLEMENTS" "$WIDGET_ENTITLEMENTS" <<'PY'
           import os
@@ -476,13 +579,24 @@ jobs:
           test -d "$verified_app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$verified_app/Info.plist")" = "$BUNDLE_ID"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$verified_app/Info.plist")" = "16.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$verified_app/Info.plist")" = "$APP_VERSION"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$verified_app/Info.plist")" = "$APP_BUILD"
           test -d "$verified_app/PlugIns"
           verified_widget_count="$(find "$verified_app/PlugIns" -maxdepth 1 -type d -name '*.appex' | wc -l | tr -d ' ')"
           test "$verified_widget_count" = "1"
           verified_widget="$(find "$verified_app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print)"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$verified_widget/Info.plist")" = "$WIDGET_BUNDLE_ID"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$verified_widget/Info.plist")" = "16.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$verified_widget/Info.plist")" = "$APP_VERSION"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$verified_widget/Info.plist")" = "$APP_BUILD"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$verified_widget/Info.plist")" = "$WIDGET_DISPLAY_NAME"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$verified_widget/Info.plist")" = "com.apple.widgetkit-extension"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ExpoWidgetsAppGroupIdentifier' "$verified_widget/Info.plist")" = "$APP_GROUP_ID"
           test -s "$verified_widget/ExpoWidgets.bundle/ExpoWidgets.bundle"
+          if find "$verified_widget" -type f \( -name '*.debug.dylib' -o -name '__preview.dylib' \) -print -quit | grep -q .; then
+            echo "The extracted Release widget contains an Xcode debug-dylib shell." >&2
+            exit 1
+          fi
           codesign --verify --deep --strict "$verified_app"
           codesign --verify --strict "$verified_widget"
           if find "$verified_app" -type f -name '*.mobileprovision' -print -quit | grep -q .; then
@@ -525,8 +639,9 @@ jobs:
           set +e
           rm -rf -- \
             "$RUNNER_TEMP/package" \
-             "$RUNNER_TEMP/verify" \
-             "$RUNNER_TEMP/app-entitlements.plist" \
-             "$RUNNER_TEMP/widget-entitlements.plist" \
-             "$RUNNER_TEMP/main-trollstore-entitlements.plist" \
-             "$RUNNER_TEMP/widget-trollstore-entitlements.plist"
+            "$RUNNER_TEMP/verify" \
+            "$RUNNER_TEMP/hermes-bytecode.txt" \
+            "$RUNNER_TEMP/app-entitlements.plist" \
+            "$RUNNER_TEMP/widget-entitlements.plist" \
+            "$RUNNER_TEMP/main-trollstore-entitlements.plist" \
+            "$RUNNER_TEMP/widget-trollstore-entitlements.plist"

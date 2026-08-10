@@ -14,6 +14,7 @@
 - 主 App Bundle Identifier：`com.xiaoke.salesworkspace`
 - 小组件 Bundle Identifier：`com.xiaoke.salesworkspace.TodoWidget`
 - App Group：`group.com.xiaoke.salesworkspace`
+- App 版本：`1.0.1`（build `2`）
 - 主 App 与小组件 iOS Deployment Target：`16.1`
 - 产物：`CardWorkbench-TrollStore.ipa`
 
@@ -35,9 +36,13 @@
 
 ## 小组件同步
 
-项目使用与 Expo SDK 55 同代的 `expo-widgets ~55.0.20`。App 首次初始化以及新增、完成、恢复或星标待办后，会把最新未完成任务快照写入 App Group，并请求 WidgetKit 刷新。
+项目使用与 Expo SDK 55 同代的 `expo-widgets ~55.0.20`。App 首次初始化以及新增、编辑日期、完成、恢复或星标待办后，会把最新未完成任务快照写入 App Group，并请求 WidgetKit 刷新。
 
-小号和中号“待办列表”组件显示当前未完成总数与最新任务。点击组件会打开 App 的计划页。
+小号和中号“待办列表”组件按参考设计显示蓝色“全部”标题、数量胶囊、彩色待办圆点、日期和星标。点击组件会打开 App 的计划页。组件使用原生 SwiftUI 视图直接读取 Expo 快照；组件库预览或尚无快照时会显示示例数据，有真实快照后立即改为 App 内的未完成待办，真实空列表则显示“暂无待办”。
+
+新增待办页支持“不设日期 / 今天 / 明天 / 一周后”快捷项和任意日历日期。计划页继续按“过期 / 今天 / 未来 / 未安排”分组；点击每条待办右侧的日历按钮可修改或清除日期。日期写入 SQLite 的 `due_at`，保存成功后统一刷新 App 列表与桌面小组件。
+
+本地配置插件还会给首次安装补一个非空 WidgetKit timeline，并把 extension 的显示名称设为“个人工作台”。Release extension 强制使用 `-O` 且关闭 Xcode debug dylib，避免 TrollStore 注册到只有调试跳板的组件可执行文件。
 
 需要注意：
 
@@ -45,6 +50,7 @@
 - iOS 会自行调度桌面组件刷新，通常很快，但不保证每次写入都在同一毫秒更新画面。
 - iOS 16.1 支持显示和刷新 WidgetKit 小组件，但系统原生交互式小组件从 iOS 17 才开始支持。因此在 iOS 16.1 上点击待办会打开 App，不能直接在桌面组件内勾选完成。
 - `expo-widgets` 55 默认把 extension target 写成 iOS 16.2。本项目通过后置配置插件固定改回 16.1，并在 GitHub Actions 中同时断言主 target 与 extension target 都是 16.1。
+- iOS bundle 必须解析到 `todo-widget.ios.tsx`。通用非 iOS 空实现使用相同的 `.tsx` 扩展名，确保 Metro 先选择 `.ios.tsx`；Workflow 会反汇编 Hermes bundle，并检查真实的组件注册链接和 `updateSnapshot` 代码确实进入 IPA。
 
 ## 手动运行 Workflow
 
@@ -72,6 +78,19 @@ Artifact 保留 5 天。下载后把 IPA 发送到 iPhone，在分享菜单中�
 
 如果设备上已经存在相同 Bundle Identifier 的普通安装版本，请先卸载旧版本；如果旧版本本来就由 TrollStore 管理，可以在 TrollStore 中处理替换。卸载前先确认是否需要保留旧 App 数据。
 
+### TrollStore 安装并显示小组件
+
+由于 `1.0.0 (1)` 的旧 IPA 没有把真实 iOS widget 注册代码打入主 bundle，请不要继续覆盖安装旧 build。按下面顺序处理一次：
+
+1. 在 TrollStore 中卸载旧的“个人工作台”；如有重要本地数据，先确认是否需要保留。
+2. Respring，然后安装新的 `1.0.1 (2)` IPA，并保持为 **System registration**。
+3. 启动“个人工作台”至少一次，等待待办页面加载完成后回到桌面。
+4. 打开 TrollStore → `Settings` → `Refresh App Registrations`；该操作会重新注册 App 及其 `.appex` 并自动 Respring。
+5. 长按桌面空白处 → `+` → 搜索“个人工作台”或“待办列表” → 选择小号或中号组件 → 添加。
+6. 如果组件库仍没有它，在 TrollStore → `Settings` 执行 `Rebuild Icon Cache`，完成 Respring 后再搜索一次。
+
+不要把 `Switch to User Registration` 当作正式修复；最终必须保持 System registration。
+
 ## 常见错误排查
 
 ### Expo Prebuild / 依赖
@@ -85,14 +104,16 @@ Artifact 保留 5 天。下载后把 IPA 发送到 iPhone，在分享菜单中�
 
 - `pod install` 找不到 Pod：先查看 `expo-prebuild.log`，确认 `expo-widgets ~55.0.20` 和 `@expo/ui ~55.0.17` 已安装。
 - 小组件 target 不存在：检查 `app.json` 的 `expo-widgets` 插件配置与 `xcode-project.log`。
-- 小组件空白：查看 Xcode 日志并确认生成的 `.appex/ExpoWidgets.bundle/ExpoWidgets.bundle` JS runtime 存在且非空；Workflow 会在打包前和解包后各检查一次。
+- 小组件空白：Workflow 会同时检查原生 fallback、非空 timeline、`.appex/ExpoWidgets.bundle/ExpoWidgets.bundle` runtime，以及主 Hermes bundle 内的真实 `updateSnapshot` 代码；先确认这些检查全部通过。
 - App 更新但组件不刷新：先打开 App 一次；确认主 App 与 `.appex` 的签名 entitlement 都包含 `group.com.xiaoke.salesworkspace`。
+- 组件库完全搜不到：先打开宿主 App一次，再执行 TrollStore 的 `Refresh App Registrations`；仍无则执行 `Rebuild Icon Cache`。如果这两项之后仍不存在，应按 IPA/extension 缺陷处理，不要反复归咎设备操作。
 
 ### Xcode Device Build
 
 - 找不到 `.xcworkspace`：检查 Expo Prebuild 与 CocoaPods 两份日志。
 - 找不到 `CardWorkbench` Scheme：不要修改 `expo.name` 或原生项目名。
 - `Release-iphoneos` 没有生成 `.app`：查看 `xcodebuild-device.log` 中第一条编译错误。
+- extension 内出现 `*.debug.dylib` 或 `__preview.dylib`：说明 Release target 又退回调试壳结构；Workflow 会拒绝该产物。
 - 某依赖要求 iOS 16.4 或更高：不要提高 Deployment Target；移除或降回 Expo SDK 55、iOS 16.1 兼容版本。
 
 ### Certificate-free 签名 / App Group
@@ -119,3 +140,5 @@ Artifact 保留 5 天。下载后把 IPA 发送到 iPhone，在分享菜单中�
 
 - [Expo SDK 55 Widgets 文档](https://docs.expo.dev/versions/v55.0.0/sdk/widgets/)
 - [TrollStore 官方仓库](https://github.com/opa334/TrollStore)
+- [TrollStore Widget 注册实现](https://github.com/opa334/TrollStore/blob/main/RootHelper/uicache.m)
+- [Apple：Creating a widget extension](https://developer.apple.com/documentation/WidgetKit/Creating-a-Widget-Extension)

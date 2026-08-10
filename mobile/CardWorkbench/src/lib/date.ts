@@ -11,6 +11,22 @@ export function dateKeyFromNow(days: number) {
   return toLocalDateKey(date);
 }
 
+export function dateFromLocalDateKey(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day, 12);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+    ? date
+    : null;
+}
+
 export function formatDueDate(value: string | null) {
   if (!value) {
     return null;

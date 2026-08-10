@@ -31,3 +31,7 @@ export type NewTodoInput = {
   isStarred: boolean;
   dueAt: string | null;
 };
+
+export type UpdateTodoInput = NewTodoInput & {
+  id: number;
+};

@@ -2,7 +2,7 @@
   "expo": {
     "name": "CardWorkbench",
     "slug": "CardWorkbench",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "cardworkbench",
@@ -10,7 +10,7 @@
     "ios": {
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.xiaoke.salesworkspace",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "CFBundleDisplayName": "个人工作台",
         "NSCameraUsageDescription": "用于在个人工作台中拍摄并上传图片。",

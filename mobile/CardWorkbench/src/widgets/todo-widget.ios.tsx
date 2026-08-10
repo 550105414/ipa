@@ -25,15 +25,32 @@ function TaskRow({ task }: { task: TodoWidgetTask }) {
   return (
     <HStack spacing={7}>
       <Image systemName="circle" size={15} color={task.accent || DEFAULT_ACCENT} />
-      <Text
-        modifiers={[
-          font({ size: 14, weight: 'medium' }),
-          foregroundStyle('#16181D'),
-          lineLimit(1),
-          frame({ maxWidth: 240, alignment: 'leading' }),
-        ]}>
-        {task.title}
-      </Text>
+      <VStack
+        alignment="leading"
+        spacing={1}
+        modifiers={[frame({ maxWidth: 240, alignment: 'leading' })]}>
+        <Text
+          modifiers={[
+            font({ size: 14, weight: 'medium' }),
+            foregroundStyle('#16181D'),
+            lineLimit(1),
+          ]}>
+          {task.title}
+        </Text>
+        {task.dueLabel ? (
+          <HStack spacing={3}>
+            <Image systemName="calendar" size={9} color={task.accent || DEFAULT_ACCENT} />
+            <Text
+              modifiers={[
+                font({ size: 10, weight: 'medium' }),
+                foregroundStyle(task.accent || DEFAULT_ACCENT),
+                lineLimit(1),
+              ]}>
+              {task.dueLabel}
+            </Text>
+          </HStack>
+        ) : null}
+      </VStack>
       <Spacer minLength={2} />
       <Image
         systemName={task.starred ? 'star.fill' : 'star'}
@@ -49,7 +66,7 @@ function TodoWidgetView(props: TodoWidgetSnapshot, environment: WidgetEnvironmen
 
   const visibleTasks = props.tasks.slice(
     0,
-    environment.widgetFamily === 'systemSmall' ? 4 : 5,
+    environment.widgetFamily === 'systemSmall' ? 3 : 5,
   );
 
   return (
@@ -118,6 +135,7 @@ export function syncTodoWidget(tasks: WidgetSyncTask[]): void {
       title: task.title,
       accent: task.color || DEFAULT_ACCENT,
       starred: task.isStarred === true || task.starred === true,
+      dueLabel: task.dueLabel,
     })),
     updatedAt: new Date().toISOString(),
   });

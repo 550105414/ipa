@@ -60,8 +60,15 @@ jobs:
             exit 1
           fi
 
-          if [[ ! -d "${apps[0]}/PlugIns/TodoWidget.appex" ]]; then
+          widget="${apps[0]}/PlugIns/TodoWidget.appex"
+          if [[ ! -d "$widget" ]]; then
             echo "待办组件未嵌入 App。" >&2
+            exit 1
+          fi
+
+          widget_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$widget/Info.plist")"
+          if [[ "$widget_executable" != "TodoWidget" || ! -f "$widget/$widget_executable" ]]; then
+            echo "待办组件缺少有效的 CFBundleExecutable。" >&2
             exit 1
           fi
 

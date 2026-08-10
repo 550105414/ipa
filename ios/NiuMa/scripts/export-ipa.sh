@@ -2,22 +2,31 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "用法: ./scripts/export-ipa.sh <TEAM_ID> [debugging|release-testing] [描述文件 UUID]"
+  echo "用法: ./scripts/export-ipa.sh <TEAM_ID> [debugging|release-testing] [主 App 描述文件 UUID] [组件描述文件 UUID]"
   exit 2
 fi
 
 TEAM_ID="$1"
 REQUESTED_METHOD="${2:-debugging}"
 PROFILE_UUID="${3:-}"
+WIDGET_PROFILE_UUID="${4:-}"
 BUNDLE_ID="com.xiaoke.salesworkspace"
+WIDGET_BUNDLE_ID="com.xiaoke.salesworkspace.TodoWidget"
 
 if [[ ! "$TEAM_ID" =~ '^[A-Za-z0-9]{10}$' ]]; then
   echo "TEAM_ID 格式不正确。"
   exit 2
 fi
 
-if [[ -n "$PROFILE_UUID" && ! "$PROFILE_UUID" =~ '^[A-Fa-f0-9-]+$' ]]; then
+if [[ -n "$PROFILE_UUID" && ! "$PROFILE_UUID" =~ '^[A-Fa-f0-9-]+$' ]] ||
+   [[ -n "$WIDGET_PROFILE_UUID" && ! "$WIDGET_PROFILE_UUID" =~ '^[A-Fa-f0-9-]+$' ]]; then
   echo "描述文件参数必须是 UUID。"
+  exit 2
+fi
+
+if [[ -n "$PROFILE_UUID" && -z "$WIDGET_PROFILE_UUID" ]] ||
+   [[ -z "$PROFILE_UUID" && -n "$WIDGET_PROFILE_UUID" ]]; then
+  echo "手动签名时必须同时提供主 App 和待办组件描述文件 UUID。"
   exit 2
 fi
 
@@ -65,11 +74,14 @@ if [[ -n "$PROFILE_UUID" ]]; then
   <dict>
     <key>${BUNDLE_ID}</key>
     <string>${PROFILE_UUID}</string>
+    <key>${WIDGET_BUNDLE_ID}</key>
+    <string>${WIDGET_PROFILE_UUID}</string>
   </dict>"
   ARCHIVE_SIGNING_ARGS=(
     CODE_SIGN_STYLE=Manual
     "CODE_SIGN_IDENTITY=$SIGNING_CERTIFICATE"
-    "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_UUID"
+    "NIUMA_APP_PROFILE_UUID=$PROFILE_UUID"
+    "NIUMA_WIDGET_PROFILE_UUID=$WIDGET_PROFILE_UUID"
   )
   EXPORT_SIGNING_ARGS=()
 fi

@@ -45,6 +45,7 @@ import {
   getLocalVaultScope,
   unlockLocalVaultSession,
 } from "@/app/customers/local-vault-session";
+import { syncOpenTasksToIOSWidget } from "@/lib/ios/todo-widget-bridge";
 
 type ProfileStatus = "completed" | "draft";
 
@@ -423,10 +424,18 @@ export function SalesWorkspace() {
     })
       .then(async (response) => {
         if (!response.ok) return { items: [] };
-        return (await response.json()) as { items?: Array<{ status?: string }> };
+        return (await response.json()) as {
+          items?: Array<{
+            id: string;
+            title: string;
+            due_at: string | null;
+            status: string;
+          }>;
+        };
       })
       .then((payload) => {
         if (!controller.signal.aborted) {
+          syncOpenTasksToIOSWidget(payload.items ?? []);
           setOpenTaskCount(
             (payload.items ?? []).filter((item) => item.status === "open").length,
           );

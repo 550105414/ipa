@@ -10,4 +10,5 @@ struct AppRootView: View {
 
 #Preview {
     AppRootView()
+        .environmentObject(WorkspaceDeepLinkStore())
 }

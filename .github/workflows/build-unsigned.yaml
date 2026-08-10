@@ -60,6 +60,11 @@ jobs:
             exit 1
           fi
 
+          if [[ ! -d "${apps[0]}/PlugIns/TodoWidget.appex" ]]; then
+            echo "待办组件未嵌入 App。" >&2
+            exit 1
+          fi
+
           package_dir="$RUNNER_TEMP/unsigned-package"
           mkdir -p "$package_dir/Payload"
           /usr/bin/ditto "${apps[0]}" "$package_dir/Payload/牛马.app"

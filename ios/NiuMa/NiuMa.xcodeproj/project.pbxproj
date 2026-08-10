@@ -20,6 +20,22 @@
 		A10000000000000000000112 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000212 /* WorkspaceView.swift */; };
 		A10000000000000000000113 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000213 /* Assets.xcassets */; };
 		A10000000000000000000114 /* WorkspaceAddressErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000215 /* WorkspaceAddressErrorTests.swift */; };
+		B10000000000000000000101 /* TodoWidgetItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000201 /* TodoWidgetItem.swift */; };
+		B10000000000000000000102 /* TodoWidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000202 /* TodoWidgetSnapshot.swift */; };
+		B10000000000000000000103 /* TodoWidgetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000203 /* TodoWidgetStore.swift */; };
+		B10000000000000000000104 /* TodoWidgetMessageDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000204 /* TodoWidgetMessageDecoder.swift */; };
+		B10000000000000000000105 /* WorkspaceDeepLinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000205 /* WorkspaceDeepLinkStore.swift */; };
+		B10000000000000000000111 /* TodoWidgetItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000201 /* TodoWidgetItem.swift */; };
+		B10000000000000000000112 /* TodoWidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000202 /* TodoWidgetSnapshot.swift */; };
+		B10000000000000000000113 /* TodoWidgetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000203 /* TodoWidgetStore.swift */; };
+		B10000000000000000000114 /* TodoWidgetEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000207 /* TodoWidgetEntry.swift */; };
+		B10000000000000000000115 /* TodoWidgetProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000208 /* TodoWidgetProvider.swift */; };
+		B10000000000000000000116 /* TodoWidgetTaskRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000209 /* TodoWidgetTaskRow.swift */; };
+		B10000000000000000000117 /* TodoWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000020A /* TodoWidgetView.swift */; };
+		B10000000000000000000118 /* TodoWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000020B /* TodoWidget.swift */; };
+		B10000000000000000000119 /* TodoWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000020C /* TodoWidgetBundle.swift */; };
+		B10000000000000000000121 /* TodoWidgetMessageDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000210 /* TodoWidgetMessageDecoderTests.swift */; };
+		B10000000000000000000131 /* TodoWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B1000000000000000000020F /* TodoWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -30,7 +46,26 @@
 			remoteGlobalIDString = A10000000000000000000601;
 			remoteInfo = NiuMa;
 		};
+		B10000000000000000000301 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000901 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B10000000000000000000601;
+			remoteInfo = TodoWidget;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B10000000000000000000431 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (B10000000000000000000131,);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000201 /* NiuMaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NiuMaApp.swift; sourceTree = "<group>"; };
@@ -51,11 +86,28 @@
 		A10000000000000000000217 /* NiuMaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NiuMaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000218 /* brand-spec.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = brand-spec.md; sourceTree = "<group>"; };
 		A10000000000000000000219 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		B10000000000000000000201 /* TodoWidgetItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/TodoWidgetItem.swift; sourceTree = "<group>"; };
+		B10000000000000000000202 /* TodoWidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/TodoWidgetSnapshot.swift; sourceTree = "<group>"; };
+		B10000000000000000000203 /* TodoWidgetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/TodoWidgetStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000204 /* TodoWidgetMessageDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/TodoWidgetMessageDecoder.swift; sourceTree = "<group>"; };
+		B10000000000000000000205 /* WorkspaceDeepLinkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/WorkspaceDeepLinkStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000206 /* NiuMa.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NiuMa.entitlements; sourceTree = "<group>"; };
+		B10000000000000000000207 /* TodoWidgetEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoWidgetEntry.swift; sourceTree = "<group>"; };
+		B10000000000000000000208 /* TodoWidgetProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoWidgetProvider.swift; sourceTree = "<group>"; };
+		B10000000000000000000209 /* TodoWidgetTaskRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoWidgetTaskRow.swift; sourceTree = "<group>"; };
+		B1000000000000000000020A /* TodoWidgetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoWidgetView.swift; sourceTree = "<group>"; };
+		B1000000000000000000020B /* TodoWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoWidget.swift; sourceTree = "<group>"; };
+		B1000000000000000000020C /* TodoWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoWidgetBundle.swift; sourceTree = "<group>"; };
+		B1000000000000000000020D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B1000000000000000000020E /* TodoWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TodoWidget.entitlements; sourceTree = "<group>"; };
+		B1000000000000000000020F /* TodoWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TodoWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000210 /* TodoWidgetMessageDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoWidgetMessageDecoderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A10000000000000000000401 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A10000000000000000000402 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000401 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -64,6 +116,7 @@
 			children = (
 				A10000000000000000000502 /* NiuMa */,
 				A10000000000000000000503 /* NiuMaTests */,
+				B10000000000000000000501 /* TodoWidget */,
 				A10000000000000000000218 /* brand-spec.md */,
 				A10000000000000000000219 /* README.md */,
 				A10000000000000000000504 /* Products */,
@@ -86,20 +139,41 @@
 				A10000000000000000000212,
 				A10000000000000000000213,
 				A10000000000000000000214,
+				B10000000000000000000201,
+				B10000000000000000000202,
+				B10000000000000000000203,
+				B10000000000000000000204,
+				B10000000000000000000205,
+				B10000000000000000000206,
 			);
 			path = NiuMa;
 			sourceTree = "<group>";
 		};
 		A10000000000000000000503 /* NiuMaTests */ = {
 			isa = PBXGroup;
-			children = (A10000000000000000000215,);
+			children = (A10000000000000000000215, B10000000000000000000210,);
 			path = NiuMaTests;
 			sourceTree = "<group>";
 		};
 		A10000000000000000000504 /* Products */ = {
 			isa = PBXGroup;
-			children = (A10000000000000000000216, A10000000000000000000217,);
+			children = (A10000000000000000000216, A10000000000000000000217, B1000000000000000000020F,);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B10000000000000000000501 /* TodoWidget */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000207,
+				B10000000000000000000208,
+				B10000000000000000000209,
+				B1000000000000000000020A,
+				B1000000000000000000020B,
+				B1000000000000000000020C,
+				B1000000000000000000020D,
+				B1000000000000000000020E,
+			);
+			path = TodoWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -108,9 +182,9 @@
 		A10000000000000000000601 /* NiuMa */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000000000000000000802;
-			buildPhases = (A10000000000000000000411, A10000000000000000000401, A10000000000000000000421,);
+			buildPhases = (A10000000000000000000411, A10000000000000000000401, A10000000000000000000421, B10000000000000000000431,);
 			buildRules = ();
-			dependencies = ();
+			dependencies = (B10000000000000000000302,);
 			name = NiuMa;
 			productName = NiuMa;
 			productReference = A10000000000000000000216;
@@ -127,6 +201,17 @@
 			productReference = A10000000000000000000217;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		B10000000000000000000601 /* TodoWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000801;
+			buildPhases = (B10000000000000000000411, B10000000000000000000401, B10000000000000000000421,);
+			buildRules = ();
+			dependencies = ();
+			name = TodoWidget;
+			productName = TodoWidget;
+			productReference = B1000000000000000000020F;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -137,8 +222,15 @@
 				LastSwiftUpdateCheck = 1600;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
-					A10000000000000000000601 = { CreatedOnToolsVersion = 16.0; };
+					A10000000000000000000601 = {
+						CreatedOnToolsVersion = 16.0;
+						SystemCapabilities = {com.apple.ApplicationGroups.iOS = {enabled = 1; }; };
+					};
 					A10000000000000000000602 = { CreatedOnToolsVersion = 16.0; TestTargetID = A10000000000000000000601; };
+					B10000000000000000000601 = {
+						CreatedOnToolsVersion = 16.0;
+						SystemCapabilities = {com.apple.ApplicationGroups.iOS = {enabled = 1; }; };
+					};
 				};
 			};
 			buildConfigurationList = A10000000000000000000801;
@@ -150,13 +242,14 @@
 			productRefGroup = A10000000000000000000504;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (A10000000000000000000601, A10000000000000000000602,);
+			targets = (A10000000000000000000601, A10000000000000000000602, B10000000000000000000601,);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A10000000000000000000421 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000113,); runOnlyForDeploymentPostprocessing = 0; };
 		A10000000000000000000422 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000421 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -175,29 +268,54 @@
 				A10000000000000000000110,
 				A10000000000000000000111,
 				A10000000000000000000112,
+				B10000000000000000000101,
+				B10000000000000000000102,
+				B10000000000000000000103,
+				B10000000000000000000104,
+				B10000000000000000000105,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A10000000000000000000412 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000114,); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000412 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000114, B10000000000000000000121,); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000411 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000111,
+				B10000000000000000000112,
+				B10000000000000000000113,
+				B10000000000000000000114,
+				B10000000000000000000115,
+				B10000000000000000000116,
+				B10000000000000000000117,
+				B10000000000000000000118,
+				B10000000000000000000119,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
 		A10000000000000000000302 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = A10000000000000000000601; targetProxy = A10000000000000000000301; };
+		B10000000000000000000302 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = B10000000000000000000601; targetProxy = B10000000000000000000301; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A10000000000000000000701 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES; GCC_C_LANGUAGE_STANDARD = gnu17; GCC_OPTIMIZATION_LEVEL = 0; IPHONEOS_DEPLOYMENT_TARGET = 16.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = iphoneos; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
 		A10000000000000000000702 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; ENABLE_NS_ASSERTIONS = NO; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; VALIDATE_PRODUCT = YES; }; name = Release; };
-		A10000000000000000000703 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 4; ENABLE_PREVIEWS = YES; ENABLE_USER_SCRIPT_SANDBOXING = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NiuMa/Resources/Info.plist; MARKETING_VERSION = 1.0.3; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace; PRODUCT_MODULE_NAME = NiuMa; PRODUCT_NAME = "牛马"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
-		A10000000000000000000704 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 4; ENABLE_PREVIEWS = YES; ENABLE_USER_SCRIPT_SANDBOXING = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NiuMa/Resources/Info.plist; MARKETING_VERSION = 1.0.3; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace; PRODUCT_MODULE_NAME = NiuMa; PRODUCT_NAME = "牛马"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+		A10000000000000000000703 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_ENTITLEMENTS = NiuMa/NiuMa.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 5; ENABLE_PREVIEWS = YES; ENABLE_USER_SCRIPT_SANDBOXING = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NiuMa/Resources/Info.plist; MARKETING_VERSION = 1.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace; PRODUCT_MODULE_NAME = NiuMa; PRODUCT_NAME = "牛马"; PROVISIONING_PROFILE_SPECIFIER = "$(NIUMA_APP_PROFILE_UUID)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		A10000000000000000000704 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_ENTITLEMENTS = NiuMa/NiuMa.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 5; ENABLE_PREVIEWS = YES; ENABLE_USER_SCRIPT_SANDBOXING = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NiuMa/Resources/Info.plist; MARKETING_VERSION = 1.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace; PRODUCT_MODULE_NAME = NiuMa; PRODUCT_NAME = "牛马"; PROVISIONING_PROFILE_SPECIFIER = "$(NIUMA_APP_PROFILE_UUID)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
 		A10000000000000000000705 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace.tests; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/牛马.app/牛马"; }; name = Debug; };
 		A10000000000000000000706 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace.tests; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/牛马.app/牛马"; }; name = Release; };
+		B10000000000000000000701 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = TodoWidget/TodoWidget.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 5; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = TodoWidget/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 16.0; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"; MARKETING_VERSION = 1.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace.TodoWidget; PRODUCT_NAME = "$(TARGET_NAME)"; PROVISIONING_PROFILE_SPECIFIER = "$(NIUMA_WIDGET_PROFILE_UUID)"; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		B10000000000000000000702 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = TodoWidget/TodoWidget.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 5; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = TodoWidget/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 16.0; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"; MARKETING_VERSION = 1.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.xiaoke.salesworkspace.TodoWidget; PRODUCT_NAME = "$(TARGET_NAME)"; PROVISIONING_PROFILE_SPECIFIER = "$(NIUMA_WIDGET_PROFILE_UUID)"; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
 		A10000000000000000000801 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000701, A10000000000000000000702,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		A10000000000000000000802 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000703, A10000000000000000000704,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		A10000000000000000000803 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000705, A10000000000000000000706,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		B10000000000000000000801 = {isa = XCConfigurationList; buildConfigurations = (B10000000000000000000701, B10000000000000000000702,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 	};
 	rootObject = A10000000000000000000901 /* Project object */;

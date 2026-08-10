@@ -7,11 +7,14 @@
 - App 启动后直接打开现有私有销售工作台，不再设置额外的本机账号密码门禁。
 - 使用持久化 `WKWebView` Cookie 打开现有私有销售工作台。
 - 支持网页里的相册选择、相机拍照、电话和短信链接。
+- 支持 iOS 16 桌面“牛马待办”小组件，小号显示 3 条、中号显示 5 条；点击打开 App 待办页。
 - 支持网络失败重试、网页返回、重新加载和主动退出。
 - 支持深浅色模式、Dynamic Type、VoiceOver 和不小于 44pt 的点击区域。
 - 1024×1024 正式 App 图标。
 
 > App 不保存工作台账号密码。网站登录和客户数据权限仍由私有站点及后端控制。
+
+待办组件通过 App Group `group.com.xiaoke.salesworkspace` 读取 App 已同步的待办快照。共享区只包含任务 ID、标题和到期时间，不包含手机号、身份证、银行卡或登录令牌。iOS 16 组件不支持直接勾选完成，打开 App 后可以操作。
 
 ## 用 GitHub Actions 生成 IPA
 
@@ -25,6 +28,7 @@
 - `BUILD_CERTIFICATE_BASE64`：包含私钥的 `.p12` 文件转换后的 Base64 全文。
 - `P12_PASSWORD`：导出 `.p12` 时设置的密码。
 - `BUILD_PROVISION_PROFILE_BASE64`：匹配 `com.xiaoke.salesworkspace` 的 `.mobileprovision` 文件转换后的 Base64 全文。
+- `BUILD_WIDGET_PROVISION_PROFILE_BASE64`：匹配 `com.xiaoke.salesworkspace.TodoWidget` 的组件描述文件 Base64 全文。
 - `KEYCHAIN_PASSWORD`：只给 GitHub runner 临时钥匙串使用的随机强密码。
 
 在 Windows PowerShell 中，可以从 D 盘读取签名文件并把 Base64 复制到剪贴板。不要把输出保存进仓库或发送到聊天：
@@ -32,6 +36,7 @@
 ```powershell
 [Convert]::ToBase64String([IO.File]::ReadAllBytes('D:\signing\distribution.p12')) | Set-Clipboard
 [Convert]::ToBase64String([IO.File]::ReadAllBytes('D:\signing\app.mobileprovision')) | Set-Clipboard
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('D:\signing\widget.mobileprovision')) | Set-Clipboard
 ```
 
 配置完成后：
@@ -45,6 +50,13 @@
 
 工作流会提前校验 Team ID、Bundle ID、描述文件和签名材料。任何一项不匹配都会停止，不会生成未签名的假 IPA。
 
+待办组件要求 Apple Developer 后台同时配置：
+
+- App ID：`com.xiaoke.salesworkspace`
+- Widget App ID：`com.xiaoke.salesworkspace.TodoWidget`
+- App Group：`group.com.xiaoke.salesworkspace`，并关联以上两个 App ID
+- 主 App 与 Widget 各自一份包含同一 App Group 的描述文件
+
 ## 在 Mac 上本地生成 IPA
 
 要求：macOS、Xcode 16 或更新版本，以及与 Bundle ID 匹配的证书和描述文件。
@@ -56,13 +68,13 @@
 ```zsh
 cd ios/NiuMa
 chmod +x scripts/export-ipa.sh
-./scripts/export-ipa.sh 你的TEAM_ID release-testing 描述文件UUID
+./scripts/export-ipa.sh 你的TEAM_ID release-testing 主App描述文件UUID 组件描述文件UUID
 ```
 
 开发调试包：
 
 ```zsh
-./scripts/export-ipa.sh 你的TEAM_ID debugging 描述文件UUID
+./scripts/export-ipa.sh 你的TEAM_ID debugging 主App描述文件UUID 组件描述文件UUID
 ```
 
 输出位于 `ios/NiuMa/build/ipa/`。脚本也兼容旧参数名 `development` 和 `ad-hoc`。
@@ -80,6 +92,8 @@ chmod +x scripts/export-ipa.sh
 - `NiuMa/App`：App 入口和根视图。
 - `NiuMa/Design`：主题颜色和品牌标识。
 - `NiuMa/Features/Workspace`：`WKWebView` 工作台、导航和错误状态。
+- `NiuMa/Shared`：App 与待办组件共享的数据模型及 App Group 存储。
 - `NiuMa/Resources`：`Info.plist`、颜色和 App 图标。
+- `TodoWidget`：iOS 16 桌面待办组件。
 - `NiuMaTests`：工作台原生外壳单元测试。
 - `scripts/export-ipa.sh`：Mac 上归档和导出 IPA。

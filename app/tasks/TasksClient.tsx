@@ -4,6 +4,7 @@ import { type ComponentPropsWithoutRef, type FormEvent, useCallback, useEffect, 
 import { CalendarCheck2, Check, ChevronLeft, Clock3, Plus, RotateCcw, Trash2, UserRound } from "lucide-react";
 import type { CustomerSearchResponse } from "@/app/customers/types";
 import { customerRequestHeaders } from "@/app/customers/request";
+import { syncOpenTasksToIOSWidget } from "@/lib/ios/todo-widget-bridge";
 
 type Task = {
   id: string;
@@ -49,7 +50,9 @@ export function TasksClient() {
       ]);
       if (!taskResponse.ok) throw new Error("待办读取失败");
       const taskPayload = (await taskResponse.json()) as { items?: Task[] };
-      setTasks(Array.isArray(taskPayload.items) ? taskPayload.items : []);
+      const loadedTasks = Array.isArray(taskPayload.items) ? taskPayload.items : [];
+      setTasks(loadedTasks);
+      syncOpenTasksToIOSWidget(loadedTasks);
       if (customerResponse.ok) {
         const payload = (await customerResponse.json()) as CustomerSearchResponse;
         setCustomers(
@@ -127,7 +130,7 @@ export function TasksClient() {
       setError("待办删除失败，请重试。");
       return;
     }
-    setTasks((current) => current.filter((item) => item.id !== task.id));
+    await load();
   }
 
   return (

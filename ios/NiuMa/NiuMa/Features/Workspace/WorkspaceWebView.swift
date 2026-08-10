@@ -48,8 +48,12 @@ struct WorkspaceWebView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences = preferences
         configuration.websiteDataStore = .default()
-        configuration.applicationNameForUserAgent = "NiuMa-iOS/1.0.3"
+        configuration.applicationNameForUserAgent = "NiuMa-iOS/1.1.0"
         configuration.allowsInlineMediaPlayback = true
+        configuration.userContentController.add(
+            context.coordinator,
+            name: TodoWidgetStore.messageHandlerName
+        )
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: Self.responseJSONCompatibilitySource,
@@ -66,7 +70,7 @@ struct WorkspaceWebView: UIViewRepresentable {
         webView.backgroundColor = .clear
         model.attach(webView)
 
-        if let url = Self.workspaceURL {
+        if let url = model.consumePendingURL() ?? Self.workspaceURL {
             var request = URLRequest(url: url)
             request.cachePolicy = .reloadRevalidatingCacheData
             request.timeoutInterval = 30

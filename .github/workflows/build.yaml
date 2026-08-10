@@ -29,9 +29,11 @@ jobs:
       BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
       P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
       BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+      BUILD_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_WIDGET_PROVISION_PROFILE_BASE64 }}
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       EXPORT_METHOD: ${{ inputs.export_method }}
       BUNDLE_ID: com.xiaoke.salesworkspace
+      WIDGET_BUNDLE_ID: com.xiaoke.salesworkspace.TodoWidget
 
     steps:
       - name: Check out source
@@ -47,6 +49,7 @@ jobs:
             BUILD_CERTIFICATE_BASE64 \
             P12_PASSWORD \
             BUILD_PROVISION_PROFILE_BASE64 \
+            BUILD_WIDGET_PROVISION_PROFILE_BASE64 \
             KEYCHAIN_PASSWORD
           do
             if [[ -z "${!name:-}" ]]; then
@@ -91,10 +94,13 @@ jobs:
           keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
           profile_path="$RUNNER_TEMP/build.mobileprovision"
           profile_plist="$RUNNER_TEMP/profile.plist"
+          widget_profile_path="$RUNNER_TEMP/widget.mobileprovision"
+          widget_profile_plist="$RUNNER_TEMP/widget-profile.plist"
           profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
 
           printf '%s' "$BUILD_CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$certificate_path"
           printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | /usr/bin/base64 -D > "$profile_path"
+          printf '%s' "$BUILD_WIDGET_PROVISION_PROFILE_BASE64" | /usr/bin/base64 -D > "$widget_profile_path"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
@@ -113,13 +119,23 @@ jobs:
           security list-keychains -d user -s "$keychain_path"
 
           security cms -D -i "$profile_path" > "$profile_plist"
+          security cms -D -i "$widget_profile_path" > "$widget_profile_plist"
           profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
           profile_team_id="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")"
           profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
           profile_bundle_id="${profile_app_id#*.}"
+          widget_profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$widget_profile_plist")"
+          widget_profile_team_id="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$widget_profile_plist")"
+          widget_profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$widget_profile_plist")"
+          widget_profile_bundle_id="${widget_profile_app_id#*.}"
 
           if [[ ! "$profile_uuid" =~ ^[A-Fa-f0-9-]+$ ]]; then
             echo "描述文件 UUID 格式不正确。" >&2
+            exit 1
+          fi
+
+          if [[ ! "$widget_profile_uuid" =~ ^[A-Fa-f0-9-]+$ ]]; then
+            echo "组件描述文件 UUID 格式不正确。" >&2
             exit 1
           fi
 
@@ -128,17 +144,31 @@ jobs:
             exit 1
           fi
 
+          if [[ "$widget_profile_team_id" != "$APPLE_TEAM_ID" ]]; then
+            echo "组件描述文件 Team ID 与 APPLE_TEAM_ID 不匹配。" >&2
+            exit 1
+          fi
+
           if [[ "$profile_bundle_id" != "$BUNDLE_ID" && "$profile_bundle_id" != "*" ]]; then
             echo "描述文件 Bundle ID ($profile_bundle_id) 与工程 ($BUNDLE_ID) 不匹配。" >&2
             exit 1
           fi
 
+          if [[ "$widget_profile_bundle_id" != "$WIDGET_BUNDLE_ID" && "$widget_profile_bundle_id" != "*" ]]; then
+            echo "组件描述文件 Bundle ID ($widget_profile_bundle_id) 与工程 ($WIDGET_BUNDLE_ID) 不匹配。" >&2
+            exit 1
+          fi
+
           mkdir -p "$profiles_dir"
           installed_profile="$profiles_dir/$profile_uuid.mobileprovision"
+          installed_widget_profile="$profiles_dir/$widget_profile_uuid.mobileprovision"
           cp "$profile_path" "$installed_profile"
+          cp "$widget_profile_path" "$installed_widget_profile"
 
           echo "profile_uuid=$profile_uuid" >> "$GITHUB_OUTPUT"
           echo "installed_profile=$installed_profile" >> "$GITHUB_OUTPUT"
+          echo "widget_profile_uuid=$widget_profile_uuid" >> "$GITHUB_OUTPUT"
+          echo "installed_widget_profile=$installed_widget_profile" >> "$GITHUB_OUTPUT"
           security find-identity -v -p codesigning "$keychain_path"
 
       - name: Build signed IPA
@@ -149,7 +179,8 @@ jobs:
             ios/NiuMa/scripts/export-ipa.sh \
               "$APPLE_TEAM_ID" \
               "$EXPORT_METHOD" \
-              "${{ steps.signing.outputs.profile_uuid }}"
+              "${{ steps.signing.outputs.profile_uuid }}" \
+              "${{ steps.signing.outputs.widget_profile_uuid }}"
 
           ipa_count="$(find "$RUNNER_TEMP/output/ipa" -maxdepth 1 -type f -name '*.ipa' | wc -l | tr -d ' ')"
           if [[ "$ipa_count" != "1" ]]; then
@@ -176,5 +207,8 @@ jobs:
           rm -f \
             "$RUNNER_TEMP/build-certificate.p12" \
             "$RUNNER_TEMP/profile.plist" \
+            "$RUNNER_TEMP/widget-profile.plist" \
             "$RUNNER_TEMP/build.mobileprovision" \
-            "${{ steps.signing.outputs.installed_profile }}"
+            "$RUNNER_TEMP/widget.mobileprovision" \
+            "${{ steps.signing.outputs.installed_profile }}" \
+            "${{ steps.signing.outputs.installed_widget_profile }}"

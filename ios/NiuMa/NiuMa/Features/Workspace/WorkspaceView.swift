@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WorkspaceView: View {
+    @EnvironmentObject private var deepLinks: WorkspaceDeepLinkStore
     @StateObject private var model = WebViewModel()
 
     var body: some View {
@@ -18,9 +19,21 @@ struct WorkspaceView: View {
         }
         .background(AppTheme.paper)
         .ignoresSafeArea(.container, edges: .bottom)
+        .onAppear(perform: openPendingDeepLink)
+        .onChange(of: deepLinks.pendingPath) { _ in
+            openPendingDeepLink()
+        }
+    }
+
+    private func openPendingDeepLink() {
+        guard let path = deepLinks.consumePath() else {
+            return
+        }
+        model.navigate(to: path)
     }
 }
 
 #Preview {
     WorkspaceView()
+        .environmentObject(WorkspaceDeepLinkStore())
 }

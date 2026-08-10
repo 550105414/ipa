@@ -1,8 +1,9 @@
 import UIKit
 import WebKit
+import WidgetKit
 
 @MainActor
-final class WebNavigationCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+final class WebNavigationCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private let model: WebViewModel
 
     init(model: WebViewModel) {
@@ -62,5 +63,14 @@ final class WebNavigationCoordinator: NSObject, WKNavigationDelegate, WKUIDelega
             webView.load(navigationAction.request)
         }
         return nil
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == TodoWidgetStore.messageHandlerName,
+              let snapshot = TodoWidgetMessageDecoder.decode(message.body),
+              TodoWidgetStore.save(snapshot) else {
+            return
+        }
+        WidgetCenter.shared.reloadTimelines(ofKind: TodoWidgetStore.widgetKind)
     }
 }

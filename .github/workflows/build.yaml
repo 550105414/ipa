@@ -1,56 +1,105 @@
-name: Build signed IPA
+name: Build iOS IPA
 
 on:
   workflow_dispatch:
-    inputs:
-      export_method:
-        description: IPA 签名方式
-        required: true
-        default: release-testing
-        type: choice
-        options:
-          - release-testing
-          - debugging
 
 permissions:
   contents: read
 
 concurrency:
-  group: signed-ipa-${{ github.ref }}
-  cancel-in-progress: false
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-ipa:
-    name: Archive and export
+  build-ios-ipa:
+    name: Build signed IPA
     runs-on: macos-15
-    timeout-minutes: 35
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile/CardWorkbench
     env:
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-      BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-      BUILD_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_WIDGET_PROVISION_PROFILE_BASE64 }}
-      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-      EXPORT_METHOD: ${{ inputs.export_method }}
       BUNDLE_ID: com.xiaoke.salesworkspace
-      WIDGET_BUNDLE_ID: com.xiaoke.salesworkspace.TodoWidget
+      SCHEME: CardWorkbench
 
     steps:
-      - name: Check out source
+      - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Check required signing secrets
-        shell: bash
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20.19.x
+          cache: npm
+          cache-dependency-path: mobile/CardWorkbench/package-lock.json
+
+      - name: Prepare build directories
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/artifacts" "$RUNNER_TEMP/build" "$RUNNER_TEMP/logs-raw" "$RUNNER_TEMP/logs"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Tests
+        run: npm run test --if-present
+
+      - name: Check Expo dependencies
+        run: npx expo install --check
+
+      - name: Expo doctor
+        run: npx expo-doctor
+
+      - name: Generate native iOS project
+        env:
+          CI: "1"
+        run: |
+          set -euo pipefail
+          npx expo prebuild --platform ios --clean --no-install \
+            2>&1 | tee "$RUNNER_TEMP/logs-raw/expo-prebuild.log"
+
+      - name: Install CocoaPods
+        run: |
+          set -euo pipefail
+          (
+            cd ios
+            pod install
+          ) 2>&1 | tee "$RUNNER_TEMP/logs-raw/pod-install.log"
+
+      - name: Show build environment
+        run: |
+          set -euo pipefail
+          sw_vers
+          node --version
+          npm --version
+          pod --version
+          xcodebuild -version
+
+      - name: Install and validate Apple signing assets
+        id: signing
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
           missing=()
           for name in \
-            APPLE_TEAM_ID \
             BUILD_CERTIFICATE_BASE64 \
             P12_PASSWORD \
             BUILD_PROVISION_PROFILE_BASE64 \
-            BUILD_WIDGET_PROVISION_PROFILE_BASE64 \
-            KEYCHAIN_PASSWORD
+            KEYCHAIN_PASSWORD \
+            APPLE_TEAM_ID
           do
             if [[ -z "${!name:-}" ]]; then
               missing+=("$name")
@@ -58,49 +107,24 @@ jobs:
           done
 
           if (( ${#missing[@]} > 0 )); then
-            echo "缺少 GitHub Actions Secrets: ${missing[*]}" >&2
+            echo "Missing required GitHub Actions Secrets: ${missing[*]}" >&2
             exit 1
           fi
 
           if [[ ! "$APPLE_TEAM_ID" =~ ^[A-Za-z0-9]{10}$ ]]; then
-            echo "APPLE_TEAM_ID 格式不正确。" >&2
+            echo "APPLE_TEAM_ID must contain exactly 10 letters or digits." >&2
             exit 1
           fi
 
-      - name: Show Xcode project information
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcodebuild -version
-          xcodebuild -list -project ios/NiuMa/NiuMa.xcodeproj
-
-      - name: Run unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcodebuild test \
-            -project ios/NiuMa/NiuMa.xcodeproj \
-            -scheme NiuMa \
-            -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: Install signing certificate and profile
-        id: signing
-        shell: bash
-        run: |
-          set -euo pipefail
           certificate_path="$RUNNER_TEMP/build-certificate.p12"
-          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
           profile_path="$RUNNER_TEMP/build.mobileprovision"
           profile_plist="$RUNNER_TEMP/profile.plist"
-          widget_profile_path="$RUNNER_TEMP/widget.mobileprovision"
-          widget_profile_plist="$RUNNER_TEMP/widget-profile.plist"
-          profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
 
           printf '%s' "$BUILD_CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$certificate_path"
           printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | /usr/bin/base64 -D > "$profile_path"
-          printf '%s' "$BUILD_WIDGET_PROVISION_PROFILE_BASE64" | /usr/bin/base64 -D > "$widget_profile_path"
+          test -s "$certificate_path"
+          test -s "$profile_path"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
@@ -118,97 +142,280 @@ jobs:
             "$keychain_path"
           security list-keychains -d user -s "$keychain_path"
 
+          if ! security find-identity -v -p codesigning "$keychain_path" \
+            | grep -Eq '"Apple Distribution'; then
+            echo "No valid Apple Distribution signing identity was found in the certificate." >&2
+            exit 1
+          fi
+
           security cms -D -i "$profile_path" > "$profile_plist"
-          security cms -D -i "$widget_profile_path" > "$widget_profile_plist"
           profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
           profile_team_id="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")"
+          entitlement_team_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.team-identifier' "$profile_plist")"
           profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
           profile_bundle_id="${profile_app_id#*.}"
-          widget_profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$widget_profile_plist")"
-          widget_profile_team_id="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$widget_profile_plist")"
-          widget_profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$widget_profile_plist")"
-          widget_profile_bundle_id="${widget_profile_app_id#*.}"
 
           if [[ ! "$profile_uuid" =~ ^[A-Fa-f0-9-]+$ ]]; then
-            echo "描述文件 UUID 格式不正确。" >&2
+            echo "Provisioning Profile UUID is invalid." >&2
             exit 1
           fi
 
-          if [[ ! "$widget_profile_uuid" =~ ^[A-Fa-f0-9-]+$ ]]; then
-            echo "组件描述文件 UUID 格式不正确。" >&2
+          if [[ "$profile_team_id" != "$APPLE_TEAM_ID" ||
+                "$entitlement_team_id" != "$APPLE_TEAM_ID" ]]; then
+            echo "Provisioning Profile Team ID does not match APPLE_TEAM_ID." >&2
             exit 1
           fi
 
-          if [[ "$profile_team_id" != "$APPLE_TEAM_ID" ]]; then
-            echo "描述文件 Team ID 与 APPLE_TEAM_ID 不匹配。" >&2
+          if [[ "$profile_bundle_id" != "$BUNDLE_ID" ]]; then
+            echo "Provisioning Profile Bundle Identifier does not match $BUNDLE_ID." >&2
             exit 1
           fi
 
-          if [[ "$widget_profile_team_id" != "$APPLE_TEAM_ID" ]]; then
-            echo "组件描述文件 Team ID 与 APPLE_TEAM_ID 不匹配。" >&2
-            exit 1
-          fi
+          python3 - "$profile_plist" <<'PY'
+          import datetime
+          import plistlib
+          import sys
 
-          if [[ "$profile_bundle_id" != "$BUNDLE_ID" && "$profile_bundle_id" != "*" ]]; then
-            echo "描述文件 Bundle ID ($profile_bundle_id) 与工程 ($BUNDLE_ID) 不匹配。" >&2
-            exit 1
-          fi
+          with open(sys.argv[1], "rb") as source:
+              profile = plistlib.load(source)
 
-          if [[ "$widget_profile_bundle_id" != "$WIDGET_BUNDLE_ID" && "$widget_profile_bundle_id" != "*" ]]; then
-            echo "组件描述文件 Bundle ID ($widget_profile_bundle_id) 与工程 ($WIDGET_BUNDLE_ID) 不匹配。" >&2
-            exit 1
-          fi
+          devices = profile.get("ProvisionedDevices")
+          if not isinstance(devices, list) or not devices:
+              raise SystemExit("Provisioning Profile is not an Ad Hoc profile.")
 
-          mkdir -p "$profiles_dir"
-          installed_profile="$profiles_dir/$profile_uuid.mobileprovision"
-          installed_widget_profile="$profiles_dir/$widget_profile_uuid.mobileprovision"
-          cp "$profile_path" "$installed_profile"
-          cp "$widget_profile_path" "$installed_widget_profile"
+          if profile.get("Entitlements", {}).get("get-task-allow") is not False:
+              raise SystemExit("Provisioning Profile must use distribution signing.")
+
+          expiration = profile.get("ExpirationDate")
+          if not isinstance(expiration, datetime.datetime) or expiration <= datetime.datetime.utcnow():
+              raise SystemExit("Provisioning Profile is expired or has no valid expiration date.")
+          PY
+
+          legacy_profiles="$HOME/Library/MobileDevice/Provisioning Profiles"
+          xcode_profiles="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$legacy_profiles" "$xcode_profiles"
+          cp "$profile_path" "$legacy_profiles/$profile_uuid.mobileprovision"
+          cp "$profile_path" "$xcode_profiles/$profile_uuid.mobileprovision"
 
           echo "profile_uuid=$profile_uuid" >> "$GITHUB_OUTPUT"
-          echo "installed_profile=$installed_profile" >> "$GITHUB_OUTPUT"
-          echo "widget_profile_uuid=$widget_profile_uuid" >> "$GITHUB_OUTPUT"
-          echo "installed_widget_profile=$installed_widget_profile" >> "$GITHUB_OUTPUT"
-          security find-identity -v -p codesigning "$keychain_path"
 
-      - name: Build signed IPA
-        shell: bash
+      - name: Detect Xcode workspace and validate project settings
+        id: xcode_project
         run: |
           set -euo pipefail
-          OUTPUT_DIR="$RUNNER_TEMP/output" \
-            ios/NiuMa/scripts/export-ipa.sh \
-              "$APPLE_TEAM_ID" \
-              "$EXPORT_METHOD" \
-              "${{ steps.signing.outputs.profile_uuid }}" \
-              "${{ steps.signing.outputs.widget_profile_uuid }}"
 
-          ipa_count="$(find "$RUNNER_TEMP/output/ipa" -maxdepth 1 -type f -name '*.ipa' | wc -l | tr -d ' ')"
-          if [[ "$ipa_count" != "1" ]]; then
-            echo "预期生成 1 个 IPA，实际为 $ipa_count。" >&2
+          workspace_count="$(find ios -maxdepth 1 -type d -name '*.xcworkspace' | wc -l | tr -d ' ')"
+          if [[ "$workspace_count" != "1" ]]; then
+            echo "Expected exactly one .xcworkspace, found $workspace_count." >&2
             exit 1
           fi
 
-          shasum -a 256 "$RUNNER_TEMP"/output/ipa/*.ipa
+          workspace="$(find ios -maxdepth 1 -type d -name '*.xcworkspace' -print)"
+          xcodebuild -workspace "$workspace" -list \
+            2>&1 | tee "$RUNNER_TEMP/logs-raw/xcode-project.log"
 
-      - name: Upload IPA
+          if ! grep -Eq "^[[:space:]]+$SCHEME[[:space:]]*$" "$RUNNER_TEMP/logs-raw/xcode-project.log"; then
+            echo "Required Xcode scheme '$SCHEME' was not found." >&2
+            exit 1
+          fi
+
+          xcodebuild \
+            -workspace "$workspace" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -showBuildSettings \
+            -json \
+            > "$RUNNER_TEMP/logs-raw/xcode-build-settings.log"
+
+          python3 - "$RUNNER_TEMP/logs-raw/xcode-build-settings.log" \
+            "$SCHEME" "$BUNDLE_ID" <<'PY'
+          import json
+          import sys
+
+          settings_path, target_name, bundle_id = sys.argv[1:]
+          with open(settings_path, encoding="utf-8") as source:
+              entries = json.load(source)
+
+          matches = [entry for entry in entries if entry.get("target") == target_name]
+          if len(matches) != 1:
+              raise SystemExit(
+                  f"Expected one build-settings entry for {target_name}, found {len(matches)}."
+              )
+
+          settings = matches[0].get("buildSettings", {})
+          actual_bundle_id = settings.get("PRODUCT_BUNDLE_IDENTIFIER")
+          deployment_target = settings.get("IPHONEOS_DEPLOYMENT_TARGET")
+          if actual_bundle_id != bundle_id:
+              raise SystemExit(
+                  f"Generated Xcode Bundle Identifier is {actual_bundle_id!r}, expected {bundle_id!r}."
+              )
+          if deployment_target != "16.1":
+              raise SystemExit(
+                  f"Generated Xcode deployment target is {deployment_target!r}, expected '16.1'."
+              )
+          PY
+
+          echo "workspace=$workspace" >> "$GITHUB_OUTPUT"
+
+      - name: Archive CardWorkbench
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PROFILE_UUID: ${{ steps.signing.outputs.profile_uuid }}
+          WORKSPACE: ${{ steps.xcode_project.outputs.workspace }}
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/build/CardWorkbench.xcarchive" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/app-signing.keychain-db" \
+            clean archive \
+            2>&1 | tee "$RUNNER_TEMP/logs-raw/xcodebuild-archive.log"
+
+          test -d "$RUNNER_TEMP/build/CardWorkbench.xcarchive"
+
+          app_count="$(find "$RUNNER_TEMP/build/CardWorkbench.xcarchive/Products/Applications" \
+            -maxdepth 1 -type d -name '*.app' | wc -l | tr -d ' ')"
+          if [[ "$app_count" != "1" ]]; then
+            echo "Expected exactly one archived .app, found $app_count." >&2
+            exit 1
+          fi
+
+          archived_app="$(find "$RUNNER_TEMP/build/CardWorkbench.xcarchive/Products/Applications" \
+            -maxdepth 1 -type d -name '*.app' -print)"
+          codesign --verify --deep --strict "$archived_app"
+
+      - name: Create ExportOptions.plist
+        id: export_options
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PROFILE_UUID: ${{ steps.signing.outputs.profile_uuid }}
+        run: |
+          set -euo pipefail
+
+          xcodebuild -help > "$RUNNER_TEMP/xcodebuild-help.txt" 2>&1
+          if grep -q 'release-testing' "$RUNNER_TEMP/xcodebuild-help.txt"; then
+            export_method="release-testing"
+          else
+            export_method="ad-hoc"
+          fi
+
+          python3 - "$RUNNER_TEMP/ExportOptions.plist" \
+            "$export_method" "$APPLE_TEAM_ID" "$BUNDLE_ID" "$PROFILE_UUID" <<'PY'
+          import plistlib
+          import sys
+
+          destination, method, team_id, bundle_id, profile_uuid = sys.argv[1:]
+          options = {
+              "destination": "export",
+              "method": method,
+              "provisioningProfiles": {bundle_id: profile_uuid},
+              "signingCertificate": "Apple Distribution",
+              "signingStyle": "manual",
+              "stripSwiftSymbols": True,
+              "teamID": team_id,
+          }
+          with open(destination, "wb") as output:
+              plistlib.dump(options, output)
+          PY
+
+          echo "method=$export_method" >> "$GITHUB_OUTPUT"
+
+      - name: Export signed IPA
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/build/CardWorkbench.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            2>&1 | tee "$RUNNER_TEMP/logs-raw/xcodebuild-export.log"
+
+          ipa_count="$(find "$RUNNER_TEMP/export" -maxdepth 1 -type f -name '*.ipa' | wc -l | tr -d ' ')"
+          if [[ "$ipa_count" != "1" ]]; then
+            echo "Expected exactly one IPA, found $ipa_count." >&2
+            exit 1
+          fi
+
+          ipa_path="$(find "$RUNNER_TEMP/export" -maxdepth 1 -type f -name '*.ipa' -print)"
+          test -s "$ipa_path"
+          /usr/bin/unzip -t "$ipa_path" >/dev/null
+          cp "$ipa_path" "$RUNNER_TEMP/artifacts/CardWorkbench.ipa"
+          shasum -a 256 "$RUNNER_TEMP/artifacts/CardWorkbench.ipa"
+
+      - name: Redact Xcode build logs
+        if: always()
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PROFILE_UUID: ${{ steps.signing.outputs.profile_uuid }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          for source_log in "$RUNNER_TEMP/logs-raw"/*.log; do
+            target_log="$RUNNER_TEMP/logs/$(basename "$source_log")"
+            if [[ "${APPLE_TEAM_ID:-}" =~ ^[A-Za-z0-9]{10}$ &&
+                  "${PROFILE_UUID:-}" =~ ^[A-Fa-f0-9-]+$ ]]; then
+              sed \
+                -e "s/$APPLE_TEAM_ID/[REDACTED_TEAM_ID]/g" \
+                -e "s/$PROFILE_UUID/[REDACTED_PROFILE_UUID]/g" \
+                "$source_log" > "$target_log"
+            elif [[ "${APPLE_TEAM_ID:-}" =~ ^[A-Za-z0-9]{10}$ ]]; then
+              sed -e "s/$APPLE_TEAM_ID/[REDACTED_TEAM_ID]/g" \
+                "$source_log" > "$target_log"
+            else
+              cp "$source_log" "$target_log"
+            fi
+          done
+
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: NiuMa-${{ inputs.export_method }}-${{ github.run_number }}
-          path: ${{ runner.temp }}/output/ipa/*.ipa
+          name: CardWorkbench-ipa-${{ github.run_number }}
+          path: ${{ runner.temp }}/artifacts/CardWorkbench.ipa
           if-no-files-found: error
           compression-level: 0
           retention-days: 5
 
-      - name: Remove temporary signing files
+      - name: Upload Xcode build logs
         if: always()
-        shell: bash
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: CardWorkbench-xcode-logs-${{ github.run_number }}
+          path: ${{ runner.temp }}/logs/*.log
+          if-no-files-found: warn
+          retention-days: 5
+
+      - name: Clean temporary signing files
+        if: always()
         run: |
+          set +e
+          profile_uuid=""
+          if [[ -f "$RUNNER_TEMP/profile.plist" ]]; then
+            profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist" 2>/dev/null)"
+          fi
+
           security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
-          rm -f \
+
+          if [[ -n "$profile_uuid" ]]; then
+            rm -f -- \
+              "$HOME/Library/MobileDevice/Provisioning Profiles/$profile_uuid.mobileprovision" \
+              "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$profile_uuid.mobileprovision"
+          fi
+
+          rm -f -- \
             "$RUNNER_TEMP/build-certificate.p12" \
-            "$RUNNER_TEMP/profile.plist" \
-            "$RUNNER_TEMP/widget-profile.plist" \
             "$RUNNER_TEMP/build.mobileprovision" \
-            "$RUNNER_TEMP/widget.mobileprovision" \
-            "${{ steps.signing.outputs.installed_profile }}" \
-            "${{ steps.signing.outputs.installed_widget_profile }}"
+            "$RUNNER_TEMP/profile.plist" \
+            "$RUNNER_TEMP/xcodebuild-help.txt" \
+            "$RUNNER_TEMP/ExportOptions.plist"
+          rm -f -- "$RUNNER_TEMP/logs-raw"/*.log

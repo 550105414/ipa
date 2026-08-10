@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct WorkspaceToolbarView: View {
-    @EnvironmentObject private var session: SessionStore
     @ObservedObject var model: WebViewModel
 
     var body: some View {
@@ -25,7 +24,6 @@ struct WorkspaceToolbarView: View {
 
             Menu("工作台菜单", systemImage: "ellipsis.circle") {
                 Button("重新加载", systemImage: "arrow.clockwise", action: model.reload)
-                Button("退出应用登录", systemImage: "lock.fill", role: .destructive, action: session.signOut)
             }
             .labelStyle(.iconOnly)
             .frame(width: 44, height: 44)

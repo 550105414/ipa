@@ -48,7 +48,7 @@ struct WorkspaceWebView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences = preferences
         configuration.websiteDataStore = .default()
-        configuration.applicationNameForUserAgent = "NiuMa-iOS/1.0.2"
+        configuration.applicationNameForUserAgent = "NiuMa-iOS/1.0.3"
         configuration.allowsInlineMediaPlayback = true
         configuration.userContentController.addUserScript(
             WKUserScript(

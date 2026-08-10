@@ -4,15 +4,14 @@
 
 ## 已包含
 
-- SwiftUI 原生登录页、登录失败限流与五分钟后台自动锁定。
-- 登录密码仅以随机盐和派生校验值存在源码中，不保存或输出明文密码。
+- App 启动后直接打开现有私有销售工作台，不再设置额外的本机账号密码门禁。
 - 使用持久化 `WKWebView` Cookie 打开现有私有销售工作台。
 - 支持网页里的相册选择、相机拍照、电话和短信链接。
 - 支持网络失败重试、网页返回、重新加载和主动退出。
 - 支持深浅色模式、Dynamic Type、VoiceOver 和不小于 44pt 的点击区域。
 - 1024×1024 正式 App 图标。
 
-> App 内的本机登录只是入口门禁，不能代替网站和数据库的身份认证。客户数据权限仍由私有站点和后端控制。
+> App 不保存工作台账号密码。网站登录和客户数据权限仍由私有站点及后端控制。
 
 ## 用 GitHub Actions 生成 IPA
 
@@ -73,15 +72,14 @@ chmod +x scripts/export-ipa.sh
 - Base64 只是编码，不是加密；签名材料只放在 GitHub 加密 Secrets 中。
 - 不要通过聊天发送证书私钥或密码。
 - GitHub Actions 日志不会主动输出证书、描述文件或密码。
-- 当前单账号校验值会随 IPA 一起分发，无法抵抗对 IPA 的逆向修改。真正的数据安全边界仍是网站登录、后端权限和数据库加密。
-- 若以后需要多账号、远程注销或跨设备账号管理，应改为服务器会话登录。
+- App 没有内置账号密码，真正的数据安全边界是网站登录、后端权限和数据库加密。
 
 ## 工程结构
 
 - `NiuMa.xcodeproj`：Xcode 工程与共享 Scheme。
 - `NiuMa/App`：App 入口和根视图。
-- `NiuMa/Features/Login`：本机登录校验、限流和登录界面。
+- `NiuMa/Design`：主题颜色和品牌标识。
 - `NiuMa/Features/Workspace`：`WKWebView` 工作台、导航和错误状态。
 - `NiuMa/Resources`：`Info.plist`、颜色和 App 图标。
-- `NiuMaTests`：密码派生与常量时间比较测试。
+- `NiuMaTests`：工作台原生外壳单元测试。
 - `scripts/export-ipa.sh`：Mac 上归档和导出 IPA。

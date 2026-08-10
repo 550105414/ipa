@@ -23,5 +23,4 @@ struct WorkspaceView: View {
 
 #Preview {
     WorkspaceView()
-        .environmentObject(SessionStore())
 }

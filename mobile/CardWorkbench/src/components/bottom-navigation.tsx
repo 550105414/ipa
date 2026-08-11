@@ -14,7 +14,7 @@ type BottomNavigationProps = {
 };
 
 const items: { key: AppRoute; label: string; icon: string; activeIcon: string }[] = [
-  { key: 'home', label: '星标', icon: 'star', activeIcon: 'star.fill' },
+  { key: 'home', label: '工作台', icon: 'square.grid.2x2', activeIcon: 'square.grid.2x2.fill' },
   { key: 'plan', label: '计划', icon: 'calendar', activeIcon: 'calendar' },
   { key: 'completed', label: '已完成', icon: 'checkmark.circle', activeIcon: 'checkmark.circle.fill' },
 ];

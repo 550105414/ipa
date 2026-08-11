@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/bottom-navigation';
@@ -67,7 +67,7 @@ export default function HomeScreen() {
         ]}>
         <View style={styles.header}>
           <Text selectable style={styles.title}>
-            牛马
+            工作台
           </Text>
           <View style={styles.headerActions}>
             <Pressable
@@ -85,29 +85,59 @@ export default function HomeScreen() {
               <SymbolIcon name="plus.square.on.square" color={colors.label} size={22} />
             </Pressable>
             <Pressable
-              accessibilityLabel="数据说明"
+              accessibilityLabel="打开客户资料"
               accessibilityRole="button"
-              onPress={() => Alert.alert('个人工作台', '待办数据保存在本机，可在桌面小组件中查看。')}
+              onPress={() => router.push({ pathname: '/workspace', params: { path: '/customers' } } as never)}
               style={({ pressed }) => [styles.settingsButton, { opacity: pressed ? 0.55 : 1 }]}>
-              <SymbolIcon name="gearshape" color={colors.label} size={22} />
+              <SymbolIcon name="person.crop.rectangle.stack" color={colors.label} size={22} />
             </Pressable>
           </View>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="打开客户工作台"
-          onPress={() => router.push('/workspace' as never)}
-          style={({ pressed }) => [styles.workspaceCard, { opacity: pressed ? 0.72 : 1 }]}>
-          <View style={styles.workspaceIcon}>
-            <SymbolIcon name="person.2.fill" color={colors.white} size={24} />
+        <Text selectable style={styles.subtitle}>
+          客户资料与今日待办，一处处理
+        </Text>
+
+        <View style={styles.customerPanel}>
+          <View style={styles.customerPanelHeader}>
+            <View style={styles.customerPanelTitleRow}>
+              <View style={styles.workspaceIcon}>
+                <SymbolIcon name="person.2.fill" color={colors.white} size={22} />
+              </View>
+              <View style={styles.customerPanelCopy}>
+                <Text selectable style={styles.workspaceTitle}>客户资料</Text>
+                <Text selectable style={styles.workspaceSubtitle}>手机与电脑端云端同步</Text>
+              </View>
+            </View>
+            <View style={styles.syncPill}>
+              <View style={styles.syncDot} />
+              <Text selectable style={styles.syncText}>已同步</Text>
+            </View>
           </View>
-          <View style={{ flex: 1, gap: 3 }}>
-            <Text selectable style={styles.workspaceTitle}>客户工作台</Text>
-            <Text selectable style={styles.workspaceSubtitle}>客户、证件、营业执照和跟进资料云端同步</Text>
+
+          <View style={styles.customerActions}>
+            <CustomerAction
+              icon="person.2"
+              label="客户列表"
+              onPress={() => router.push({ pathname: '/workspace', params: { path: '/customers' } } as never)}
+            />
+            <CustomerAction
+              icon="person.badge.plus"
+              label="新增客户"
+              onPress={() => router.push({ pathname: '/workspace', params: { path: '/customers/new' } } as never)}
+            />
+            <CustomerAction
+              icon="archivebox"
+              label="回收站"
+              onPress={() => router.push({ pathname: '/workspace', params: { path: '/customers/trash' } } as never)}
+            />
+            <CustomerAction
+              icon="square.and.arrow.down"
+              label="导出资料"
+              onPress={() => router.push({ pathname: '/workspace', params: { path: '/settings/data' } } as never)}
+            />
           </View>
-          <SymbolIcon name="chevron.right" color={colors.blue} size={18} />
-        </Pressable>
+        </View>
 
         <ScreenState
           isLoading={isLoading}
@@ -125,6 +155,29 @@ export default function HomeScreen() {
       <FloatingAddButton />
       <BottomNavigation active="home" />
     </View>
+  );
+}
+
+function CustomerAction({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: string;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.customerAction, { opacity: pressed ? 0.58 : 1 }]}>
+      <View style={styles.customerActionIcon}>
+        <SymbolIcon name={icon} color={colors.blue} size={19} />
+      </View>
+      <Text style={styles.customerActionText}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -154,6 +207,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -1.1,
   },
+  subtitle: {
+    color: colors.secondaryLabel,
+    fontSize: 15,
+    lineHeight: 21,
+    marginTop: -12,
+    marginBottom: 15,
+  },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -180,36 +240,103 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
-  workspaceCard: {
-    minHeight: 86,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  customerPanel: {
+    overflow: 'hidden',
     padding: 14,
     marginBottom: 16,
-    borderRadius: 20,
+    borderRadius: 24,
     borderCurve: 'continuous',
     backgroundColor: colors.card,
     boxShadow: '0 6px 20px rgba(52, 121, 200, 0.10)',
   },
+  customerPanelHeader: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingBottom: 13,
+  },
+  customerPanelTitleRow: {
+    minWidth: 0,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  customerPanelCopy: {
+    minWidth: 0,
+    flex: 1,
+    gap: 2,
+  },
   workspaceIcon: {
-    width: 48,
-    height: 48,
+    width: 42,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
+    borderRadius: 14,
     borderCurve: 'continuous',
     backgroundColor: colors.blue,
   },
   workspaceTitle: {
     color: colors.label,
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '800',
   },
   workspaceSubtitle: {
     color: colors.secondaryLabel,
     fontSize: 12,
     lineHeight: 17,
+  },
+  syncPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 14,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    backgroundColor: '#EDF8F2',
+  },
+  syncDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#4FB381',
+  },
+  syncText: {
+    color: '#33845D',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  customerActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 7,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+    paddingTop: 12,
+  },
+  customerAction: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 15,
+    borderCurve: 'continuous',
+    paddingVertical: 8,
+  },
+  customerActionIcon: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 13,
+    borderCurve: 'continuous',
+    backgroundColor: colors.blueTint,
+  },
+  customerActionText: {
+    color: colors.label,
+    fontSize: 11,
+    fontWeight: '600',
   },
   column: {
     gap: 13,

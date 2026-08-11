@@ -1263,7 +1263,7 @@ button {
     z-index: 50;
     display: grid;
     height: calc(66px + env(safe-area-inset-bottom));
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     align-items: start;
     border-top: 1px solid #e2e8e4;
     background: rgba(255,255,255,0.96);

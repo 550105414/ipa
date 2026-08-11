@@ -12,10 +12,10 @@ export default function RootLayout() {
       <SQLiteProvider databaseName="cardworkbench.db" onInit={migrateDatabase}>
         <TodoProvider>
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#F6F5FB' } }}>
-            <Stack.Screen name="index" options={{ title: 'MarkTodo' }} />
+            <Stack.Screen name="index" options={{ title: '工作台' }} />
             <Stack.Screen name="plan" options={{ title: '计划' }} />
             <Stack.Screen name="completed" options={{ title: '已完成' }} />
-            <Stack.Screen name="workspace" options={{ title: '客户工作台' }} />
+            <Stack.Screen name="workspace" options={{ title: '客户资料' }} />
             <Stack.Screen
               name="add-task"
               options={{

@@ -4,7 +4,7 @@
 
 - Bundle Identifier：`com.xiaoke.salesworkspace`
 - 小组件 Bundle Identifier：`com.xiaoke.salesworkspace.TodoWidget`
-- iPhone 显示名称：`个人工作台`
+- iPhone 显示名称：`工作台`
 - iOS Deployment Target：`16.1`
 - 正式产物：通过根目录 `.github/workflows/build.yaml` 在 GitHub macOS Runner 手动生成 TrollStore IPA
 
@@ -19,4 +19,4 @@ npx expo install --check
 npx expo-doctor
 ```
 
-App UI、待办 SQLite 数据与小组件快照同步在本项目内完成，不再依赖 WebView 或远程网页。Xcode Device Release、小组件 `.appex`、App Group entitlement 与 TrollStore IPA 打包只能在 macOS Runner 验证。完整说明见根目录 `docs/GITHUB_IPA_BUILD.md`。
+App 首页、待办、已完成和桌面小组件均为 React Native / WidgetKit 原生界面；客户云端资料在独立的原生容器中打开，并隐藏网站导航外壳。Xcode Device Release、小组件 `.appex`、App Group entitlement 与 TrollStore IPA 打包只能在 macOS Runner 验证。完整说明见根目录 `docs/GITHUB_IPA_BUILD.md`。

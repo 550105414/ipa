@@ -24,7 +24,6 @@ import {
   Store,
   DatabaseBackup,
   UserPlus,
-  UserRound,
   UsersRound,
   X,
 } from "lucide-react";
@@ -1181,7 +1180,6 @@ export function SalesWorkspace() {
         <Link href="/customers"><UsersRound size={20} /><span>客户</span></Link>
         <Link href="/customers/new" className="mobile-add" aria-label="新增客户"><Plus size={25} /></Link>
         <Link href="/tasks"><CalendarCheck2 size={20} /><span>待办</span></Link>
-        <button type="button" onClick={() => setToast("当前为个人本机加密工作台")}><UserRound size={20} /><span>我的</span></button>
       </nav>
 
       {toast && <div className="toast-message" role="status"><Check size={17} />{toast}</div>}

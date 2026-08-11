@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,16 @@ import { SymbolIcon } from '@/components/symbol-icon';
 import { colors } from '@/theme/colors';
 
 const WORKSPACE_URL = 'https://xiaoke-sales-workspace.rich-mug-8653.chatgpt.site/';
+
+const allowedPaths = new Set([
+  '/',
+  '/customers',
+  '/customers/new',
+  '/customers/trash',
+  '/tasks',
+  '/activity',
+  '/settings/data',
+]);
 
 const RESPONSE_JSON_POLYFILL = `
 (function () {
@@ -32,12 +42,40 @@ const RESPONSE_JSON_POLYFILL = `
 true;
 `;
 
+const NATIVE_SHELL_CSS = `
+(function () {
+  var style = document.createElement('style');
+  style.id = 'workspace-native-shell';
+  style.textContent = [
+    '.desktop-sidebar,.desktop-topbar,.mobile-brandbar,.mobile-search-wrap,.mobile-bottom-nav{display:none!important}',
+    'body{padding-bottom:env(safe-area-inset-bottom)!important;background:#F6F5FB!important}',
+    '.workspace-shell,.customer-page-shell,.page-shell{min-height:100vh!important}',
+    '@media(max-width:760px){main,.main-stage,.workspace-main{padding-top:10px!important;padding-bottom:24px!important}}'
+  ].join('');
+  document.documentElement.appendChild(style);
+})();
+true;
+`;
+
+function titleForPath(path: string) {
+  if (path === '/customers/new') return '新增客户';
+  if (path === '/customers/trash') return '客户回收站';
+  if (path === '/tasks') return '客户待办';
+  if (path === '/activity') return '操作记录';
+  if (path === '/settings/data') return '导出与恢复';
+  return '客户资料';
+}
+
 export default function WorkspaceScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ path?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const webView = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const requestedPath = Array.isArray(params.path) ? params.path[0] : params.path;
+  const initialPath = requestedPath && allowedPaths.has(requestedPath) ? requestedPath : '/customers';
+  const pageTitle = titleForPath(initialPath);
 
   return (
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.card }}>
@@ -60,7 +98,7 @@ export default function WorkspaceScreen() {
           <SymbolIcon name="chevron.left" size={22} color={colors.label} />
         </Pressable>
         <Text selectable style={{ flex: 1, fontSize: 17, fontWeight: '700', color: colors.label }}>
-          客户工作台
+          {pageTitle}
         </Text>
         <Pressable
           accessibilityLabel="重新加载工作台"
@@ -76,14 +114,14 @@ export default function WorkspaceScreen() {
 
       <WebView
         ref={webView}
-        source={{ uri: WORKSPACE_URL }}
+        source={{ uri: new URL(initialPath, WORKSPACE_URL).toString() }}
         sharedCookiesEnabled
         thirdPartyCookiesEnabled
         javaScriptEnabled
         domStorageEnabled
         allowsBackForwardNavigationGestures
-        applicationNameForUserAgent=" NiuMa-iOS/1.1.0"
-        injectedJavaScriptBeforeContentLoaded={RESPONSE_JSON_POLYFILL}
+        applicationNameForUserAgent=" Workspace-iOS/1.2.0"
+        injectedJavaScriptBeforeContentLoaded={`${RESPONSE_JSON_POLYFILL}\n${NATIVE_SHELL_CSS}`}
         onLoadStart={() => {
           setLoading(true);
           setFailed(false);

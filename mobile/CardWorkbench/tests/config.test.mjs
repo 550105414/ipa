@@ -19,17 +19,17 @@ test('Expo iOS release configuration stays pinned', async () => {
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties',
   );
 
-  assert.equal(appConfig.expo.name, '牛马');
-  assert.equal(appConfig.expo.version, '1.1.0');
+  assert.equal(appConfig.expo.name, '工作台');
+  assert.equal(appConfig.expo.version, '1.2.0');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '3');
-  assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '牛马');
+  assert.equal(appConfig.expo.ios.buildNumber, '4');
+  assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
-  assert.equal(packageJson.version, '1.1.0');
-  assert.equal(packageLock.version, '1.1.0');
-  assert.equal(packageLock.packages[''].version, '1.1.0');
+  assert.equal(packageJson.version, '1.2.0');
+  assert.equal(packageLock.version, '1.2.0');
+  assert.equal(packageLock.packages[''].version, '1.2.0');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',

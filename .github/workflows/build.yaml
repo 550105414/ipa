@@ -26,9 +26,9 @@ jobs:
       APP_GROUP_ID: group.com.xiaoke.salesworkspace
       SCHEME: CardWorkbench
       WIDGET_TARGET: ExpoWidgetsTarget
-      APP_VERSION: 1.1.0
-      APP_BUILD: "3"
-      WIDGET_DISPLAY_NAME: 个人工作台
+      APP_VERSION: 1.2.0
+      APP_BUILD: "4"
+      WIDGET_DISPLAY_NAME: 工作台待办
 
     steps:
       - name: Checkout

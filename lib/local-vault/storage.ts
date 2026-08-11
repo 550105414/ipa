@@ -48,9 +48,13 @@ export type StoredCustomerRecord = {
   machineType?: CustomerMachineType | null;
   machineMode?: CustomerMachineMode | null;
   feeRate?: number | null;
+  depositAmount?: number | null;
+  address?: string | null;
+  tags?: string[];
   createdAt: string;
   idCardFrontType: string | null;
   idCardBackType: string | null;
+  businessLicenseType?: string | null;
   hasBankCard: boolean;
   phoneTokens: string[];
   summaryAuthTag: string;
@@ -58,6 +62,7 @@ export type StoredCustomerRecord = {
     phone: EncryptedBytes;
     idCardFront: EncryptedBytes | null;
     idCardBack: EncryptedBytes | null;
+    businessLicense?: EncryptedBytes | null;
     bankCard: EncryptedBytes | null;
   };
 };

@@ -22,16 +22,21 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   const { db, files } = await getWorkspaceBindings();
   const row = await db
     .prepare(
-      `SELECT name, id_card_front_key, id_card_back_key
+      `SELECT name, id_card_front_key, id_card_back_key, business_license_key
        FROM customers
        WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NOT NULL
        LIMIT 1`,
     )
     .bind(id, userId)
-    .first<{ name: string; id_card_front_key: string | null; id_card_back_key: string | null }>();
+    .first<{
+      name: string;
+      id_card_front_key: string | null;
+      id_card_back_key: string | null;
+      business_license_key: string | null;
+    }>();
   if (!row) return apiError(404, "CUSTOMER_NOT_FOUND", "未找到客户");
   await Promise.allSettled(
-    [row.id_card_front_key, row.id_card_back_key]
+    [row.id_card_front_key, row.id_card_back_key, row.business_license_key]
       .filter((key): key is string => Boolean(key))
       .map((key) => files.delete(key)),
   );

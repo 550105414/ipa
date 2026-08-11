@@ -27,6 +27,12 @@ import {
   isCustomerMachineType,
   isValidCustomerFeeRate,
 } from "@/lib/customers/machine";
+import {
+  normalizeCustomerAddress,
+  normalizeCustomerTags,
+  normalizeMachineDeposit,
+  parseStoredCustomerTags,
+} from "@/lib/customers/profile";
 
 interface CustomerDetailRpcRow {
   id: string;
@@ -73,11 +79,15 @@ export async function GET(
         machineType: row.machine_type,
         machineMode: row.machine_mode,
         feeRate: row.fee_rate,
+        depositAmount: row.deposit_amount,
+        address: row.address,
+        tags: parseStoredCustomerTags(row.tags_json),
         createdAt: row.created_at,
         idCard: {
           frontUploaded: Boolean(row.id_card_front_key),
           backUploaded: Boolean(row.id_card_back_key),
         },
+        businessLicense: { uploaded: Boolean(row.business_license_key) },
       },
     });
   }
@@ -166,6 +176,9 @@ export async function PATCH(
     machineType?: unknown;
     machineMode?: unknown;
     feeRate?: unknown;
+    depositAmount?: unknown;
+    address?: unknown;
+    tags?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -176,8 +189,13 @@ export async function PATCH(
   const updatesFollowUp = body.nextFollowUpAt !== undefined;
   const updatesShopName = body.shopName !== undefined;
   const updatesMachine =
-    body.machineType !== undefined || body.machineMode !== undefined || body.feeRate !== undefined;
-  if (!updatesCategory && !updatesFollowUp && !updatesShopName && !updatesMachine) {
+    body.machineType !== undefined ||
+    body.machineMode !== undefined ||
+    body.feeRate !== undefined ||
+    body.depositAmount !== undefined;
+  const updatesAddress = body.address !== undefined;
+  const updatesTags = body.tags !== undefined;
+  if (!updatesCategory && !updatesFollowUp && !updatesShopName && !updatesMachine && !updatesAddress && !updatesTags) {
     return workspaceApiError(400, "INVALID_CUSTOMER_UPDATE", "没有需要保存的客户资料");
   }
   const category = updatesCategory
@@ -216,11 +234,13 @@ export async function PATCH(
   let machineType = owned.row.machine_type;
   let machineMode = owned.row.machine_mode;
   let feeRate = owned.row.fee_rate;
+  let depositAmount = owned.row.deposit_amount;
   if (updatesMachine) {
     if (body.machineType === null || body.machineType === "") {
       machineType = null;
       machineMode = null;
       feeRate = null;
+      depositAmount = null;
     } else {
       const nextRate = typeof body.feeRate === "number" ? body.feeRate : Number.NaN;
       if (
@@ -233,6 +253,27 @@ export async function PATCH(
       machineType = body.machineType;
       machineMode = body.machineMode;
       feeRate = nextRate;
+      try {
+        depositAmount = normalizeMachineDeposit(body.depositAmount);
+      } catch {
+        return workspaceApiError(400, "INVALID_MACHINE_DEPOSIT", "押金金额无效");
+      }
+    }
+  }
+  let address = owned.row.address;
+  if (updatesAddress) {
+    try {
+      address = normalizeCustomerAddress(body.address);
+    } catch {
+      return workspaceApiError(400, "INVALID_CUSTOMER_ADDRESS", "客户地址不能超过 200 个字符");
+    }
+  }
+  let tags = parseStoredCustomerTags(owned.row.tags_json);
+  if (updatesTags) {
+    try {
+      tags = normalizeCustomerTags(body.tags);
+    } catch {
+      return workspaceApiError(400, "INVALID_CUSTOMER_TAGS", "最多填写 8 个标签，每个不超过 20 个字符");
     }
   }
   const { db } = await getWorkspaceBindings();
@@ -242,10 +283,24 @@ export async function PATCH(
       .prepare(
         `UPDATE customers
          SET category = ?1, next_follow_up_at = ?2, shop_name = ?3,
-             machine_type = ?4, machine_mode = ?5, fee_rate = ?6, updated_at = ?7
-         WHERE id = ?8 AND owner_id = ?9 AND deleted_at IS NULL`,
+             machine_type = ?4, machine_mode = ?5, fee_rate = ?6,
+             deposit_amount = ?7, address = ?8, tags_json = ?9, updated_at = ?10
+         WHERE id = ?11 AND owner_id = ?12 AND deleted_at IS NULL`,
       )
-      .bind(category, nextFollowUpAt, shopName, machineType, machineMode, feeRate, now, id, owned.userId),
+      .bind(
+        category,
+        nextFollowUpAt,
+        shopName,
+        machineType,
+        machineMode,
+        feeRate,
+        depositAmount,
+        address,
+        JSON.stringify(tags),
+        now,
+        id,
+        owned.userId,
+      ),
     activityStatement(db, {
       ownerId: owned.userId,
       customerId: id,
@@ -256,10 +311,12 @@ export async function PATCH(
         ? "shop_name_updated"
         : updatesFollowUp
           ? "follow_up_updated"
-          : "category_updated",
+          : updatesAddress || updatesTags
+            ? "customer_profile_updated"
+            : "category_updated",
       summary: updatesMachine
         ? machineType && machineMode && feeRate !== null
-          ? `机器更新为 ${machineType} · ${machineMode} · ${feeRate}%`
+          ? `机器更新为 ${machineType} · ${machineMode} · ${feeRate}%${depositAmount === null ? "" : ` · 押金 ¥${depositAmount}`}`
           : "已清空机器信息"
         : updatesShopName
         ? shopName
@@ -269,7 +326,9 @@ export async function PATCH(
         ? nextFollowUpAt
           ? `下次跟进时间更新为 ${nextFollowUpAt}`
           : "已清除下次跟进时间"
-        : `客户分类更新为 ${category}`,
+        : updatesAddress || updatesTags
+          ? "客户地址或标签已更新"
+          : `客户分类更新为 ${category}`,
       createdAt: now,
     }),
   ]);
@@ -280,6 +339,9 @@ export async function PATCH(
     machineType,
     machineMode,
     feeRate,
+    depositAmount,
+    address,
+    tags,
   });
 }
 

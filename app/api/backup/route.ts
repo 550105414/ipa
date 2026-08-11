@@ -5,12 +5,12 @@ import {
 } from "@/lib/security/bank-card";
 import {
   decryptWorkspaceBackup,
-  encryptWorkspaceBackup,
   WorkspaceBackupError,
 } from "@/lib/security/workspace-backup";
 import {
   activityStatement,
   apiError,
+  customerBusinessLicenseObjectKey,
   customerObjectKey,
   getWorkspaceBindings,
   isWorkspaceCloudConfigured,
@@ -26,9 +26,21 @@ import {
   type CustomerMachineMode,
   type CustomerMachineType,
 } from "@/lib/customers/machine";
+import {
+  normalizeCustomerAddress,
+  normalizeCustomerTags,
+  normalizeMachineDeposit,
+  parseStoredCustomerTags,
+} from "@/lib/customers/profile";
 
 const MAX_BACKUP_BYTES = 75 * 1024 * 1024;
-const SAFE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const SAFE_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
 
 type BackupImage = { contentType: string; base64: string } | null;
 type BackupCustomer = {
@@ -39,12 +51,16 @@ type BackupCustomer = {
   machineType: CustomerMachineType | null;
   machineMode: CustomerMachineMode | null;
   feeRate: number | null;
+  depositAmount?: number | null;
+  address?: string | null;
+  tags?: string[];
   bankCardNumber: string | null;
   nextFollowUpAt: string | null;
   createdAt: string;
   updatedAt: string;
   front: BackupImage;
   back: BackupImage;
+  businessLicense?: BackupImage;
 };
 type BackupActivity = {
   customerId: string | null;
@@ -54,7 +70,7 @@ type BackupActivity = {
   createdAt: string;
 };
 type WorkspaceBackup = {
-  version: 1;
+  version: 1 | 2;
   exportedAt: string;
   customers: BackupCustomer[];
   activity: BackupActivity[];
@@ -70,8 +86,9 @@ export async function GET(request: Request): Promise<Response> {
   const rows = await db
     .prepare(
       `SELECT id, owner_id, name, phone, shop_name, category,
-              machine_type, machine_mode, fee_rate,
-              id_card_front_key, id_card_back_key,
+              machine_type, machine_mode, fee_rate, deposit_amount,
+              address, tags_json,
+              id_card_front_key, id_card_back_key, business_license_key,
               bank_card_ciphertext, bank_card_last4,
               next_follow_up_at, deleted_at, purge_after,
               created_at, updated_at
@@ -91,6 +108,9 @@ export async function GET(request: Request): Promise<Response> {
       machineType: row.machine_type,
       machineMode: row.machine_mode,
       feeRate: row.fee_rate,
+      depositAmount: row.deposit_amount,
+      address: row.address,
+      tags: parseStoredCustomerTags(row.tags_json),
       bankCardNumber: row.bank_card_ciphertext
         ? await decryptBankCardNumber(row.bank_card_ciphertext, row.id)
         : null,
@@ -99,6 +119,7 @@ export async function GET(request: Request): Promise<Response> {
       updatedAt: row.updated_at,
       front: await readImage(files, row.id_card_front_key),
       back: await readImage(files, row.id_card_back_key),
+      businessLicense: await readImage(files, row.business_license_key),
     });
   }
   const activities = await db
@@ -118,7 +139,7 @@ export async function GET(request: Request): Promise<Response> {
       created_at: string;
     }>();
   const backup: WorkspaceBackup = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     customers,
     activity: (activities.results ?? []).map((item) => ({
@@ -129,20 +150,15 @@ export async function GET(request: Request): Promise<Response> {
       createdAt: item.created_at,
     })),
   };
-  try {
-    const encrypted = await encryptWorkspaceBackup(JSON.stringify(backup));
-    return new Response(encrypted, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="sales-workspace-${new Date().toISOString().slice(0, 10)}.xkbak"`,
-        "Cache-Control": "private, no-store",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
-  } catch {
-    return apiError(503, "BACKUP_ENCRYPTION_UNAVAILABLE", "备份加密服务暂时不可用");
-  }
+  return new Response(JSON.stringify(backup, null, 2), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": `attachment; filename="sales-workspace-${new Date().toISOString().slice(0, 10)}.json"`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -157,20 +173,24 @@ export async function POST(request: Request): Promise<Response> {
   }
   let file: File;
   try {
-    const form = await request.formData();
+    const form = (await request.formData()) as unknown as FormData;
     const value = form.get("backup");
     if (!(value instanceof File) || value.size <= 0 || value.size > MAX_BACKUP_BYTES) {
       throw new Error("invalid file");
     }
     file = value;
   } catch {
-    return apiError(400, "INVALID_BACKUP_FILE", "请选择有效的 .xkbak 备份文件");
+    return apiError(400, "INVALID_BACKUP_FILE", "请选择有效的 .json 或旧版 .xkbak 备份文件");
   }
   let backup: WorkspaceBackup;
   try {
-    const decrypted = await decryptWorkspaceBackup(await file.text());
-    backup = JSON.parse(decrypted) as WorkspaceBackup;
-    if (backup.version !== 1 || !Array.isArray(backup.customers) || backup.customers.length > 5000) {
+    const raw = await file.text();
+    try {
+      backup = JSON.parse(raw) as WorkspaceBackup;
+    } catch {
+      backup = JSON.parse(await decryptWorkspaceBackup(raw)) as WorkspaceBackup;
+    }
+    if (![1, 2].includes(backup.version) || !Array.isArray(backup.customers) || backup.customers.length > 5000) {
       throw new WorkspaceBackupError();
     }
   } catch {
@@ -198,8 +218,12 @@ export async function POST(request: Request): Promise<Response> {
     const id = crypto.randomUUID();
     const front = decodeImage(source.front);
     const back = decodeImage(source.back);
+    const businessLicense = decodeImage(source.businessLicense ?? null);
     const frontKey = front ? customerObjectKey(userId, id, "front") : null;
     const backKey = back ? customerObjectKey(userId, id, "back") : null;
+    const businessLicenseKey = businessLicense
+      ? customerBusinessLicenseObjectKey(userId, id)
+      : null;
     const uploaded: string[] = [];
     try {
       if (front && frontKey) {
@@ -209,6 +233,12 @@ export async function POST(request: Request): Promise<Response> {
       if (back && backKey) {
         await files.put(backKey, back.bytes, { httpMetadata: { contentType: back.contentType } });
         uploaded.push(backKey);
+      }
+      if (businessLicense && businessLicenseKey) {
+        await files.put(businessLicenseKey, businessLicense.bytes, {
+          httpMetadata: { contentType: businessLicense.contentType },
+        });
+        uploaded.push(businessLicenseKey);
       }
       const encryptedCard = source.bankCardNumber
         ? await encryptBankCardNumber(normalizeAndValidateCardNumber(source.bankCardNumber), id)
@@ -221,17 +251,23 @@ export async function POST(request: Request): Promise<Response> {
       const feeRate = machineType && machineMode && isValidCustomerFeeRate(source.feeRate)
         ? source.feeRate
         : null;
+      const depositAmount = machineType
+        ? normalizeMachineDeposit(source.depositAmount)
+        : null;
+      const address = normalizeCustomerAddress(source.address);
+      const tags = normalizeCustomerTags(source.tags);
       await db.batch([
         db
           .prepare(
             `INSERT INTO customers (
               id, owner_id, name, phone, shop_name, category,
               machine_type, machine_mode, fee_rate,
-              id_card_front_key, id_card_back_key,
+              deposit_amount, address, tags_json,
+              id_card_front_key, id_card_back_key, business_license_key,
               bank_card_ciphertext, bank_card_last4,
               next_follow_up_at, deleted_at, purge_after,
               created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, NULL, ?15, ?16)`,
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, NULL, ?19, ?20)`,
           )
           .bind(
             id,
@@ -243,8 +279,12 @@ export async function POST(request: Request): Promise<Response> {
             machineType,
             machineMode,
             feeRate,
+            depositAmount,
+            address,
+            JSON.stringify(tags),
             frontKey,
             backKey,
+            businessLicenseKey,
             encryptedCard?.ciphertext ?? null,
             encryptedCard?.last4 ?? null,
             nextFollowUpAt,
@@ -256,7 +296,7 @@ export async function POST(request: Request): Promise<Response> {
           customerId: id,
           customerName: name,
           eventType: "customer_restored_from_backup",
-          summary: "客户已从加密备份恢复",
+          summary: "客户已从备份文件恢复",
         }),
       ]);
       imported += 1;

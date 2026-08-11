@@ -21,6 +21,10 @@ import {
   type CustomerMachineType,
 } from "@/lib/customers/machine";
 import {
+  MAX_MACHINE_DEPOSIT,
+  normalizeCustomerTags,
+} from "@/lib/customers/profile";
+import {
   bankCardDigits,
   formatBankCardNumber,
   isValidBankCardNumber,
@@ -32,7 +36,7 @@ import {
 } from "../local-vault-session";
 import { customerRequestHeaders } from "../request";
 
-type DocumentSide = "front" | "back";
+type DocumentSide = "front" | "back" | "license";
 type SubmitPhase =
   | "idle"
   | "verifying"
@@ -79,7 +83,9 @@ function safeImageFilename(side: DocumentSide, mimeType: string): string {
         : mimeType === "image/heic" || mimeType === "image/heif"
           ? "heic"
           : "jpg";
-  return `id-card-${side}.${extension}`;
+  return side === "license"
+    ? `business-license.${extension}`
+    : `id-card-${side}.${extension}`;
 }
 
 function isCloudSaveFallback(error: unknown): boolean {
@@ -99,11 +105,15 @@ export function NewCustomerClient() {
   const [machineType, setMachineType] = useState<"" | CustomerMachineType>("");
   const [machineMode, setMachineMode] = useState<"" | CustomerMachineMode>("");
   const [feeRate, setFeeRate] = useState("");
+  const [depositAmount, setDepositAmount] = useState("");
+  const [address, setAddress] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
   const [nextFollowUpAt, setNextFollowUpAt] = useState("");
   const [bankCardNumber, setBankCardNumber] = useState("");
   const [password, setPassword] = useState("");
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
+  const [businessLicenseFile, setBusinessLicenseFile] = useState<File | null>(null);
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0);
@@ -124,13 +134,18 @@ export function NewCustomerClient() {
   const bankCardReady =
     bankCardNumber.length === 0 || isValidBankCardNumber(bankCardNumber);
   const parsedFeeRate = feeRate === "" ? null : Number(feeRate);
+  const parsedDepositAmount = depositAmount === "" ? null : Number(depositAmount);
   const machineReady =
     machineType === "" ||
     (machineMode !== "" &&
       parsedFeeRate !== null &&
       Number.isFinite(parsedFeeRate) &&
       parsedFeeRate > 0 &&
-      parsedFeeRate <= 100);
+      parsedFeeRate <= 100 &&
+      (parsedDepositAmount === null ||
+        (Number.isFinite(parsedDepositAmount) &&
+          parsedDepositAmount >= 0 &&
+          parsedDepositAmount <= MAX_MACHINE_DEPOSIT)));
   const isComplete = Boolean(
     nameReady && phoneReady && frontFile && backFile && bankCardReady,
   );
@@ -218,7 +233,8 @@ export function NewCustomerClient() {
 
     if (!file) {
       if (side === "front") setFrontFile(null);
-      else setBackFile(null);
+      else if (side === "back") setBackFile(null);
+      else setBusinessLicenseFile(null);
       return;
     }
     if (!file.type.startsWith("image/")) {
@@ -233,7 +249,8 @@ export function NewCustomerClient() {
     }
 
     if (side === "front") setFrontFile(file);
-    else setBackFile(file);
+    else if (side === "back") setBackFile(file);
+    else setBusinessLicenseFile(file);
   }
 
   function uploadCloudCustomer(input: {
@@ -244,8 +261,12 @@ export function NewCustomerClient() {
     machineType: CustomerMachineType | null;
     machineMode: CustomerMachineMode | null;
     feeRate: number | null;
+    depositAmount: number | null;
+    address: string | null;
+    tags: string[];
     front: File | null;
     back: File | null;
+    businessLicense: File | null;
     cardNumber: string | null;
     verificationPassword: string;
     nextFollowUpAt: string | null;
@@ -258,6 +279,11 @@ export function NewCustomerClient() {
     if (input.machineType) formData.append("machineType", input.machineType);
     if (input.machineMode) formData.append("machineMode", input.machineMode);
     if (input.feeRate !== null) formData.append("feeRate", String(input.feeRate));
+    if (input.depositAmount !== null) {
+      formData.append("depositAmount", String(input.depositAmount));
+    }
+    if (input.address) formData.append("address", input.address);
+    formData.append("tags", JSON.stringify(input.tags));
     if (input.nextFollowUpAt) {
       formData.append("nextFollowUpAt", input.nextFollowUpAt);
     }
@@ -273,6 +299,13 @@ export function NewCustomerClient() {
         "idCardBack",
         input.back,
         safeImageFilename("back", input.back.type),
+      );
+    }
+    if (input.businessLicense) {
+      formData.append(
+        "businessLicense",
+        input.businessLicense,
+        safeImageFilename("license", input.businessLicense.type),
       );
     }
     if (input.cardNumber) {
@@ -358,10 +391,14 @@ export function NewCustomerClient() {
     setMachineType("");
     setMachineMode("");
     setFeeRate("");
+    setDepositAmount("");
+    setAddress("");
+    setTagsInput("");
     setNextFollowUpAt("");
     setDuplicateCustomer(null);
     setFrontFile(null);
     setBackFile(null);
+    setBusinessLicenseFile(null);
     setSubmitPhase("redirecting");
     setUploadProgress(100);
     setFormKey((value) => value + 1);
@@ -407,6 +444,7 @@ export function NewCustomerClient() {
       if (controller.signal.aborted) return;
 
       setSubmitPhase("saving");
+      const tags = normalizeCustomerTags(tagsInput);
       const savedCustomer = await saveLocalCustomer(
         {
           name: name.trim(),
@@ -416,8 +454,12 @@ export function NewCustomerClient() {
           machineType: machineType || null,
           machineMode: machineMode || null,
           feeRate: parsedFeeRate,
+          depositAmount: parsedDepositAmount,
+          address: address.trim() || null,
+          tags,
           idCardFront: frontFile,
           idCardBack: backFile,
+          businessLicense: businessLicenseFile,
           bankCardNumber: bankCardNumber
             ? bankCardDigits(bankCardNumber)
             : null,
@@ -441,8 +483,12 @@ export function NewCustomerClient() {
             machineType: machineType || null,
             machineMode: machineMode || null,
             feeRate: parsedFeeRate,
+            depositAmount: parsedDepositAmount,
+            address: address.trim() || null,
+            tags: normalizeCustomerTags(tagsInput),
             front: frontFile,
             back: backFile,
+            businessLicense: businessLicenseFile,
             cardNumber: bankCardNumber
               ? bankCardDigits(bankCardNumber)
               : null,
@@ -490,12 +536,16 @@ export function NewCustomerClient() {
     setMachineType("");
     setMachineMode("");
     setFeeRate("");
+    setDepositAmount("");
+    setAddress("");
+    setTagsInput("");
     setNextFollowUpAt("");
     setDuplicateCustomer(null);
     setBankCardNumber("");
     setPassword("");
     setFrontFile(null);
     setBackFile(null);
+    setBusinessLicenseFile(null);
     setFileError(null);
     setFormMessage(null);
     setUploadProgress(0);
@@ -582,6 +632,40 @@ export function NewCustomerClient() {
                     className="h-12 w-full rounded-xl border border-[#d9e2f0] bg-[#f8faff] px-4 text-base outline-none transition focus:border-[#2f6bff] focus:bg-white focus:ring-4 focus:ring-[#2f6bff]/10"
                   />
                 </label>
+
+                <div className="block sm:col-span-2">
+                  <label htmlFor="customer-address" className="mb-2 flex items-center justify-between text-sm font-semibold text-[#344054]">
+                    <span>店铺地址</span>
+                    <span className="text-xs font-normal text-[#7a8699]">选填，可直接导航</span>
+                  </label>
+                  <input
+                    id="customer-address"
+                    type="text"
+                    autoComplete="street-address"
+                    disabled={isSubmitting}
+                    maxLength={200}
+                    value={address}
+                    onChange={(event) => setAddress(event.target.value)}
+                    placeholder="请输入门店或客户地址"
+                    className="h-12 w-full rounded-xl border border-[#d9e2f0] bg-[#f8faff] px-4 text-base outline-none transition focus:border-[#2f6bff] focus:bg-white focus:ring-4 focus:ring-[#2f6bff]/10"
+                  />
+                </div>
+
+                <div className="block sm:col-span-2">
+                  <label htmlFor="customer-tags" className="mb-2 flex items-center justify-between text-sm font-semibold text-[#344054]">
+                    <span>客户标签</span>
+                    <span className="text-xs font-normal text-[#7a8699]">最多 8 个，用逗号分隔</span>
+                  </label>
+                  <input
+                    id="customer-tags"
+                    type="text"
+                    disabled={isSubmitting}
+                    value={tagsInput}
+                    onChange={(event) => setTagsInput(event.target.value)}
+                    placeholder="例如：重点客户，待审核，需要设备"
+                    className="h-12 w-full rounded-xl border border-[#d9e2f0] bg-[#f8faff] px-4 text-base outline-none transition focus:border-[#2f6bff] focus:bg-white focus:ring-4 focus:ring-[#2f6bff]/10"
+                  />
+                </div>
 
                 <label
                   htmlFor="customer-phone"
@@ -697,7 +781,7 @@ export function NewCustomerClient() {
                   <p className="mb-4 mt-1 text-xs leading-5 text-[#7a8699]">
                     选填。选择机器后，购买方式和费率需要一起填写。
                   </p>
-                  <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <label htmlFor="customer-machine-type" className="block">
                       <span className="mb-2 block text-sm font-medium text-[#475467]">机器</span>
                       <select
@@ -710,6 +794,7 @@ export function NewCustomerClient() {
                           if (!value) {
                             setMachineMode("");
                             setFeeRate("");
+                            setDepositAmount("");
                           }
                           setFormMessage(null);
                         }}
@@ -761,6 +846,29 @@ export function NewCustomerClient() {
                           className="h-12 w-full rounded-xl border border-[#d9e2f0] bg-white px-3 pr-9 text-base outline-none transition disabled:bg-[#eef2f7] disabled:text-[#98a2b3] focus:border-[#2f6bff] focus:ring-4 focus:ring-[#2f6bff]/10"
                         />
                         <span className="pointer-events-none absolute inset-y-0 right-3 grid place-items-center text-sm text-[#667085]">%</span>
+                      </div>
+                    </label>
+
+                    <label htmlFor="customer-deposit" className="block">
+                      <span className="mb-2 block text-sm font-medium text-[#475467]">押金</span>
+                      <div className="relative">
+                        <input
+                          id="customer-deposit"
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          max={MAX_MACHINE_DEPOSIT}
+                          step="0.01"
+                          disabled={isSubmitting || !machineType}
+                          value={depositAmount}
+                          onChange={(event) => {
+                            setDepositAmount(event.target.value);
+                            setFormMessage(null);
+                          }}
+                          placeholder="例如 299"
+                          className="h-12 w-full rounded-xl border border-[#d9e2f0] bg-white px-3 pl-8 text-base outline-none transition disabled:bg-[#eef2f7] disabled:text-[#98a2b3] focus:border-[#2f6bff] focus:ring-4 focus:ring-[#2f6bff]/10"
+                        />
+                        <span className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center text-sm text-[#667085]">¥</span>
                       </div>
                     </label>
                   </div>
@@ -857,6 +965,25 @@ export function NewCustomerClient() {
                     file={backFile}
                     disabled={isSubmitting}
                     onChange={(event) => handleDocument(event, "back")}
+                  />
+                </div>
+              </fieldset>
+
+              <fieldset className="mt-7">
+                <legend className="text-sm font-semibold text-[#344054]">
+                  营业执照 / 名片
+                </legend>
+                <p className="mt-1 text-xs leading-5 text-[#7a8699]">
+                  选填。手机可直接拍照或从相册选择，图片只保存到当前账号的私有文件库。
+                </p>
+                <div className="mt-4">
+                  <UploadField
+                    id="business-license"
+                    title="营业执照或名片"
+                    hint="拍照、扫描或从相册选择"
+                    file={businessLicenseFile}
+                    disabled={isSubmitting}
+                    onChange={(event) => handleDocument(event, "license")}
                   />
                 </div>
               </fieldset>
@@ -1053,7 +1180,7 @@ function UploadField({
           {file ? "✓" : "+"}
         </span>
         <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-[#5f6b7a] shadow-sm">
-          {file ? "重新选择" : "拍照 / 相册"}
+          {file ? "重新选择" : "扫描 / 拍照 / 相册"}
         </span>
       </div>
       <div className="mt-4">

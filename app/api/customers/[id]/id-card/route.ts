@@ -10,7 +10,13 @@ import {
 } from "@/lib/workspace/server";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
 
 interface RouteContext {
   params: Promise<{ id: string }> | { id: string };
@@ -34,7 +40,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   }
   let form: FormData;
   try {
-    form = await request.formData();
+    form = (await request.formData()) as unknown as FormData;
   } catch {
     return apiError(400, "INVALID_ID_CARD_FORM", "身份证上传表单无效");
   }

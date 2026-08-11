@@ -12,6 +12,7 @@ import type {
   SearchItem,
   SearchResponse,
 } from "@/lib/search/types";
+import { parseStoredCustomerTags } from "@/lib/customers/profile";
 import {
   BackendConfigurationError,
   callSupabaseRpc,
@@ -181,10 +182,10 @@ async function handleWorkspaceSearch(
       const phoneIndex = values.length + 1;
       values.push(`%${phoneFragment}%`);
       where.push(
-        `(name LIKE ?${nameIndex} ESCAPE '\\' OR shop_name LIKE ?${nameIndex} ESCAPE '\\' OR phone LIKE ?${phoneIndex} ESCAPE '\\')`,
+        `(name LIKE ?${nameIndex} ESCAPE '\\' OR shop_name LIKE ?${nameIndex} ESCAPE '\\' OR address LIKE ?${nameIndex} ESCAPE '\\' OR tags_json LIKE ?${nameIndex} ESCAPE '\\' OR phone LIKE ?${phoneIndex} ESCAPE '\\')`,
       );
     } else {
-      where.push(`(name LIKE ?${nameIndex} ESCAPE '\\' OR shop_name LIKE ?${nameIndex} ESCAPE '\\')`);
+      where.push(`(name LIKE ?${nameIndex} ESCAPE '\\' OR shop_name LIKE ?${nameIndex} ESCAPE '\\' OR address LIKE ?${nameIndex} ESCAPE '\\' OR tags_json LIKE ?${nameIndex} ESCAPE '\\')`);
     }
   }
   if (params.status === "completed") {
@@ -213,6 +214,8 @@ async function handleWorkspaceSearch(
   const rows = await db
     .prepare(
       `SELECT id, owner_id, name, phone, shop_name, category,
+              machine_type, machine_mode, fee_rate, deposit_amount,
+              address, tags_json, business_license_key,
               id_card_front_key, id_card_back_key,
               bank_card_ciphertext, bank_card_last4,
               next_follow_up_at, deleted_at, purge_after,
@@ -235,6 +238,13 @@ async function handleWorkspaceSearch(
       maskedPhone: maskPhone(row.phone),
       profileStatus: profileStatus(row),
       category: normalizeCustomerCategory(row.category),
+      nextFollowUpAt: row.next_follow_up_at,
+      machineType: row.machine_type,
+      machineMode: row.machine_mode,
+      feeRate: row.fee_rate,
+      depositAmount: row.deposit_amount,
+      address: row.address,
+      tags: parseStoredCustomerTags(row.tags_json),
       createdAt: row.created_at,
     })),
     nextCursor: hasMore ? encodeCursor(params.offset + params.limit) : null,

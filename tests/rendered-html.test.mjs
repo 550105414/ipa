@@ -98,7 +98,7 @@ test("machine type, purchase mode, and fee rate flow through customer storage", 
   assert.match(migration, /fee_rate/);
 });
 
-test("encrypted export visibly includes identity images and machine details", async () => {
+test("plain JSON export visibly includes identity images, license, and machine details", async () => {
   const [settings, customers, backup] = await Promise.all([
     readFile(new URL("app/settings/data/DataSettingsClient.tsx", projectRoot), "utf8"),
     readFile(new URL("app/customers/CustomersClient.tsx", projectRoot), "utf8"),
@@ -106,10 +106,13 @@ test("encrypted export visibly includes identity images and machine details", as
   ]);
   assert.match(settings, /身份证正面与反面原始图片/);
   assert.match(settings, /机器类型、购买\/赠送模式和费率/);
-  assert.match(settings, /href="\/api\/backup"/);
+  assert.match(settings, /导出未加密资料/);
+  assert.match(settings, /普通 JSON/);
   assert.match(customers, /导出全部资料/);
   assert.match(backup, /readImage\(files, row\.id_card_front_key\)/);
   assert.match(backup, /readImage\(files, row\.id_card_back_key\)/);
+  assert.match(backup, /readImage\(files, row\.business_license_key\)/);
+  assert.match(backup, /application\/json; charset=utf-8/);
 });
 
 test("partial phone and fuzzy name searches only expose masked phones", async () => {

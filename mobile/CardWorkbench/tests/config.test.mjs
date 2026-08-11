@@ -19,17 +19,17 @@ test('Expo iOS release configuration stays pinned', async () => {
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties',
   );
 
-  assert.equal(appConfig.expo.name, 'CardWorkbench');
-  assert.equal(appConfig.expo.version, '1.0.1');
+  assert.equal(appConfig.expo.name, '牛马');
+  assert.equal(appConfig.expo.version, '1.1.0');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '2');
-  assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '个人工作台');
+  assert.equal(appConfig.expo.ios.buildNumber, '3');
+  assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '牛马');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
-  assert.equal(packageJson.version, '1.0.1');
-  assert.equal(packageLock.version, '1.0.1');
-  assert.equal(packageLock.packages[''].version, '1.0.1');
+  assert.equal(packageJson.version, '1.1.0');
+  assert.equal(packageLock.version, '1.1.0');
+  assert.equal(packageLock.packages[''].version, '1.1.0');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
@@ -63,6 +63,7 @@ test('iOS widget implementation wins Metro platform resolution', async () => {
   await access(iosTsx);
   assert.match(iosWidgetSource, /createWidget<TodoWidgetSnapshot>\('TodoWidget'/);
   assert.match(iosWidgetSource, /TodoWidget\.updateSnapshot\(/);
+  assert.match(iosWidgetSource, /TodoWidget\.reload\(\)/);
   assert.match(compatibilityPlugin, /CardWorkbenchTodoWidgetView/);
   assert.match(compatibilityPlugin, /TodoWidgetResilientTimelineProvider/);
   assert.match(compatibilityPlugin, /ENABLE_DEBUG_DYLIB = 'NO'/);

@@ -15,6 +15,9 @@ export type CustomerSearchItem = {
   machineType?: CustomerMachineType | null;
   machineMode?: CustomerMachineMode | null;
   feeRate?: number | null;
+  depositAmount?: number | null;
+  address?: string | null;
+  tags?: string[];
   createdAt: string | null;
 };
 
@@ -36,11 +39,15 @@ export type CustomerDetail = {
   machineType?: CustomerMachineType | null;
   machineMode?: CustomerMachineMode | null;
   feeRate?: number | null;
+  depositAmount?: number | null;
+  address?: string | null;
+  tags?: string[];
   createdAt: string | null;
   idCard: {
     frontUploaded: boolean;
     backUploaded: boolean;
   };
+  businessLicense?: { uploaded: boolean };
   merchantName?: string | null;
   notes?: string | null;
 };
@@ -57,6 +64,7 @@ export type CustomerSensitiveData = {
     backUrl: string | null;
   };
   bankCardNumber: string | null;
+  businessLicenseUrl?: string | null;
   demoMode?: boolean;
 };
 

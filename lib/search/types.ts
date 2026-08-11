@@ -19,6 +19,9 @@ export interface CustomerSearchItem {
   machineType?: CustomerMachineType | null;
   machineMode?: CustomerMachineMode | null;
   feeRate?: number | null;
+  depositAmount?: number | null;
+  address?: string | null;
+  tags?: string[];
   createdAt: string | null;
 }
 
@@ -52,11 +55,15 @@ export interface CustomerDetail {
   machineType?: CustomerMachineType | null;
   machineMode?: CustomerMachineMode | null;
   feeRate?: number | null;
+  depositAmount?: number | null;
+  address?: string | null;
+  tags?: string[];
   createdAt: string | null;
   idCard: {
     frontUploaded: boolean;
     backUploaded: boolean;
   };
+  businessLicense?: { uploaded: boolean };
 }
 
 export interface CustomerDetailResponse {
@@ -77,6 +84,7 @@ export interface CustomerSensitiveResponse {
     backUrl: string | null;
   };
   bankCardNumber: string | null;
+  businessLicenseUrl?: string | null;
   demoMode?: boolean;
 }
 

@@ -90,6 +90,9 @@ export async function POST(
             : null,
         },
         bankCardNumber,
+        businessLicenseUrl: owned.row.business_license_key
+          ? `/api/customers/${id}/business-license`
+          : null,
       },
       200,
     );

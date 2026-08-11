@@ -139,4 +139,5 @@ export function syncTodoWidget(tasks: WidgetSyncTask[]): void {
     })),
     updatedAt: new Date().toISOString(),
   });
+  TodoWidget.reload();
 }

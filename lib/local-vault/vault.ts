@@ -35,6 +35,11 @@ import {
   type CustomerMachineMode,
   type CustomerMachineType,
 } from "@/lib/customers/machine";
+import {
+  normalizeCustomerAddress,
+  normalizeCustomerTags,
+  normalizeMachineDeposit,
+} from "@/lib/customers/profile";
 import type {
   LocalVaultStorage,
   StoredCustomerRecord,
@@ -125,6 +130,7 @@ export function createLocalVaultApi(storage: LocalVaultStorage): LocalVaultApi {
       } finally {
         normalized.idCardFront?.fill(0);
         normalized.idCardBack?.fill(0);
+        normalized.businessLicense?.fill(0);
       }
     },
 
@@ -149,7 +155,7 @@ export function createLocalVaultApi(storage: LocalVaultStorage): LocalVaultApi {
 
     async unlockLocalCustomer(id, session) {
       const context = await sensitiveContext(storage, id, session);
-      const [phone, bankCardNumber, frontBytes, backBytes] = await Promise.all([
+      const [phone, bankCardNumber, frontBytes, backBytes, licenseBytes] = await Promise.all([
         decryptText(context.masterKey, context.record.encrypted.phone, fieldAad(context, "phone")),
         context.record.encrypted.bankCard
           ? decryptText(context.masterKey, context.record.encrypted.bankCard, fieldAad(context, "bank-card-pan"))
@@ -168,11 +174,19 @@ export function createLocalVaultApi(storage: LocalVaultStorage): LocalVaultApi {
               blobFieldAad(context, "id-card-back", context.record.idCardBackType),
             )
           : Promise.resolve(null),
+        context.record.encrypted.businessLicense && context.record.businessLicenseType
+          ? decryptBytes(
+              context.masterKey,
+              context.record.encrypted.businessLicense,
+              blobFieldAad(context, "business-license", context.record.businessLicenseType),
+            )
+          : Promise.resolve(null),
       ]);
       validateDecryptedPhone(phone);
       if (bankCardNumber !== null && !isValidBankCard(bankCardNumber)) {
         frontBytes?.fill(0);
         backBytes?.fill(0);
+        licenseBytes?.fill(0);
         throw new LocalVaultIntegrityError();
       }
       const frontBlob = frontBytes && context.record.idCardFrontType
@@ -181,8 +195,12 @@ export function createLocalVaultApi(storage: LocalVaultStorage): LocalVaultApi {
       const backBlob = backBytes && context.record.idCardBackType
         ? new Blob([toArrayBuffer(backBytes)], { type: context.record.idCardBackType })
         : null;
+      const businessLicenseBlob = licenseBytes && context.record.businessLicenseType
+        ? new Blob([toArrayBuffer(licenseBytes)], { type: context.record.businessLicenseType })
+        : null;
       frontBytes?.fill(0);
       backBytes?.fill(0);
+      licenseBytes?.fill(0);
       if (typeof URL.createObjectURL !== "function") throw new LocalVaultUnavailableError();
       const urls: string[] = [];
       try {
@@ -190,6 +208,10 @@ export function createLocalVaultApi(storage: LocalVaultStorage): LocalVaultApi {
         if (frontUrl) urls.push(frontUrl);
         const backUrl = backBlob ? URL.createObjectURL(backBlob) : null;
         if (backUrl) urls.push(backUrl);
+        const businessLicenseUrl = businessLicenseBlob
+          ? URL.createObjectURL(businessLicenseBlob)
+          : null;
+        if (businessLicenseUrl) urls.push(businessLicenseUrl);
         const revoke = registerObjectUrls(session, urls);
         return {
           ...summaryFromRecord(context.record),
@@ -202,6 +224,11 @@ export function createLocalVaultApi(storage: LocalVaultStorage): LocalVaultApi {
             backBlob,
             frontUrl,
             backUrl,
+          },
+          businessLicense: {
+            uploaded: Boolean(businessLicenseBlob),
+            blob: businessLicenseBlob,
+            url: businessLicenseUrl,
           },
           revoke,
         };
@@ -288,7 +315,11 @@ async function searchPage(
               (phoneToken
                 ? record.phoneTokens.includes(phoneToken)
                 : record.name.toLocaleLowerCase().includes(trimmedQuery.toLocaleLowerCase()) ||
-                  (record.shopName ?? "").toLocaleLowerCase().includes(trimmedQuery.toLocaleLowerCase()))) &&
+                  (record.shopName ?? "").toLocaleLowerCase().includes(trimmedQuery.toLocaleLowerCase()) ||
+                  (record.address ?? "").toLocaleLowerCase().includes(trimmedQuery.toLocaleLowerCase()) ||
+                  (record.tags ?? []).some((tag) =>
+                    tag.toLocaleLowerCase().includes(trimmedQuery.toLocaleLowerCase()),
+                  ))) &&
             matchesStatus(record, normalizedFilters.status) &&
             matchesCategory(record, normalizedFilters.category) &&
             matchesPeriod(record.createdAt, normalizedFilters.period),
@@ -437,14 +468,19 @@ type NormalizedInput = {
   maskedPhone: string;
   idCardFront: Uint8Array | null;
   idCardBack: Uint8Array | null;
+  businessLicense: Uint8Array | null;
   idCardFrontType: string | null;
   idCardBackType: string | null;
+  businessLicenseType: string | null;
   bankCardNumber: string | null;
   profileStatus: "completed" | "draft";
   category: LocalCustomerCategory;
   machineType: CustomerMachineType | null;
   machineMode: CustomerMachineMode | null;
   feeRate: number | null;
+  depositAmount: number | null;
+  address: string | null;
+  tags: string[];
   createdAt: string;
 };
 
@@ -459,21 +495,27 @@ async function normalizeInput(input: SaveLocalCustomerInput): Promise<Normalized
   if (!/^\+?\d{7,20}$/.test(phone)) throw new LocalVaultValidationError("客户手机号无效。");
   if (input.idCardFront) validateImage(input.idCardFront);
   if (input.idCardBack) validateImage(input.idCardBack);
-  const [front, back] = await Promise.all([
+  if (input.businessLicense) validateImage(input.businessLicense);
+  const [front, back, businessLicense] = await Promise.all([
     input.idCardFront ? input.idCardFront.arrayBuffer() : Promise.resolve(null),
     input.idCardBack ? input.idCardBack.arrayBuffer() : Promise.resolve(null),
+    input.businessLicense ? input.businessLicense.arrayBuffer() : Promise.resolve(null),
   ]);
   const createdAt = input.createdAt ?? new Date().toISOString();
   if (!Number.isFinite(Date.parse(createdAt))) throw new LocalVaultValidationError("录入时间无效。");
   const machineType = input.machineType ?? null;
   const machineMode = input.machineMode ?? null;
   const feeRate = input.feeRate ?? null;
+  const depositAmount = normalizeMachineDeposit(input.depositAmount);
   if (
     (machineType !== null && !isCustomerMachineType(machineType)) ||
     (machineType === null && (machineMode !== null || feeRate !== null)) ||
     (machineType !== null && (!isCustomerMachineMode(machineMode) || !isValidCustomerFeeRate(feeRate)))
   ) {
     throw new LocalVaultValidationError("请选择机器、购买方式并填写有效费率。");
+  }
+  if (machineType === null && depositAmount !== null) {
+    throw new LocalVaultValidationError("选择机器后才能填写押金。");
   }
   return {
     name,
@@ -483,11 +525,15 @@ async function normalizeInput(input: SaveLocalCustomerInput): Promise<Normalized
     maskedPhone: maskPhone(phone),
     idCardFront: front ? new Uint8Array(front) : null,
     idCardBack: back ? new Uint8Array(back) : null,
+    businessLicense: businessLicense ? new Uint8Array(businessLicense) : null,
     idCardFrontType: input.idCardFront
       ? input.idCardFront.type || "application/octet-stream"
       : null,
     idCardBackType: input.idCardBack
       ? input.idCardBack.type || "application/octet-stream"
+      : null,
+    businessLicenseType: input.businessLicense
+      ? input.businessLicense.type || "application/octet-stream"
       : null,
     bankCardNumber: input.bankCardNumber ? normalizeBankCard(input.bankCardNumber) : null,
     profileStatus: input.idCardFront && input.idCardBack ? "completed" : "draft",
@@ -495,6 +541,9 @@ async function normalizeInput(input: SaveLocalCustomerInput): Promise<Normalized
     machineType,
     machineMode,
     feeRate,
+    depositAmount,
+    address: normalizeCustomerAddress(input.address),
+    tags: normalizeCustomerTags(input.tags),
     createdAt: new Date(createdAt).toISOString(),
   };
 }
@@ -595,7 +644,7 @@ async function encryptCustomer(
       phoneFragments(input.phoneDigits).map((fragment) => hmacToken(metadata.phoneIndexKey, fragment)),
   );
   const scopedTokens = tokens.map((token) => scopedPhoneToken(metadata.scopeKey, token));
-  const [phone, idCardFront, idCardBack, bankCard] = await Promise.all([
+  const [phone, idCardFront, idCardBack, businessLicense, bankCard] = await Promise.all([
       encryptText(masterKey, input.phone, aadFor(metadata.scopeKey, metadata.vaultId, id, "phone")),
       input.idCardFront && input.idCardFrontType
         ? encryptBytes(
@@ -609,6 +658,13 @@ async function encryptCustomer(
             masterKey,
             input.idCardBack,
             aadFor(metadata.scopeKey, metadata.vaultId, id, `id-card-back|${input.idCardBackType}`),
+          )
+        : Promise.resolve(null),
+      input.businessLicense && input.businessLicenseType
+        ? encryptBytes(
+            masterKey,
+            input.businessLicense,
+            aadFor(metadata.scopeKey, metadata.vaultId, id, `business-license|${input.businessLicenseType}`),
           )
         : Promise.resolve(null),
       input.bankCardNumber
@@ -629,13 +685,17 @@ async function encryptCustomer(
       machineType: input.machineType,
       machineMode: input.machineMode,
       feeRate: input.feeRate,
+      depositAmount: input.depositAmount,
+      address: input.address,
+      tags: input.tags,
       createdAt: input.createdAt,
       idCardFrontType: input.idCardFrontType,
       idCardBackType: input.idCardBackType,
+      businessLicenseType: input.businessLicenseType,
       hasBankCard: Boolean(bankCard),
       phoneTokens: scopedTokens,
       summaryAuthTag: "",
-      encrypted: { phone, idCardFront, idCardBack, bankCard },
+      encrypted: { phone, idCardFront, idCardBack, businessLicense, bankCard },
   };
   record.summaryAuthTag = await summaryAuthTag(metadata, record);
   return record;
@@ -654,6 +714,7 @@ async function sensitiveContext(storage: LocalVaultStorage, id: string, session:
   if (
     Boolean(record.idCardFrontType) !== Boolean(record.encrypted.idCardFront) ||
     Boolean(record.idCardBackType) !== Boolean(record.encrypted.idCardBack)
+    || Boolean(record.businessLicenseType) !== Boolean(record.encrypted.businessLicense)
   ) {
     throw new LocalVaultIntegrityError();
   }
@@ -688,12 +749,16 @@ function summaryFromRecord(record: StoredCustomerRecord): LocalCustomerSummary {
     machineType: record.machineType ?? null,
     machineMode: record.machineMode ?? null,
     feeRate: record.feeRate ?? null,
+    depositAmount: record.depositAmount ?? null,
+    address: record.address ?? null,
+    tags: record.tags ?? [],
     createdAt: record.createdAt,
     idCard: {
       frontUploaded: Boolean(record.idCardFrontType),
       backUploaded: Boolean(record.idCardBackType),
     },
     hasBankCard: record.hasBankCard,
+    businessLicense: { uploaded: Boolean(record.businessLicenseType) },
   };
 }
 
@@ -737,13 +802,29 @@ function validateRecordEnvelope(record: StoredCustomerRecord, metadata: StoredVa
       !isCustomerMachineMode(record.machineMode)) ||
     (record.feeRate !== undefined && record.feeRate !== null &&
       !isValidCustomerFeeRate(record.feeRate)) ||
+    (record.depositAmount !== undefined && record.depositAmount !== null &&
+      (typeof record.depositAmount !== "number" ||
+        !Number.isFinite(record.depositAmount) ||
+        record.depositAmount < 0 ||
+        record.depositAmount > 1_000_000)) ||
+    (record.address !== undefined && record.address !== null &&
+      (typeof record.address !== "string" || !record.address || record.address.length > 200)) ||
+    (record.tags !== undefined &&
+      (!Array.isArray(record.tags) ||
+        record.tags.length > 8 ||
+        record.tags.some((tag) => typeof tag !== "string" || !tag || tag.length > 20))) ||
     ((record.machineType ?? null) === null &&
-      ((record.machineMode ?? null) !== null || (record.feeRate ?? null) !== null)) ||
+      ((record.machineMode ?? null) !== null ||
+        (record.feeRate ?? null) !== null ||
+        (record.depositAmount ?? null) !== null)) ||
     ((record.machineType ?? null) !== null &&
       ((record.machineMode ?? null) === null || (record.feeRate ?? null) === null)) ||
     !Number.isFinite(Date.parse(record.createdAt)) ||
     (record.idCardFrontType !== null && !isSafeImageType(record.idCardFrontType)) ||
     (record.idCardBackType !== null && !isSafeImageType(record.idCardBackType)) ||
+    (record.businessLicenseType !== undefined &&
+      record.businessLicenseType !== null &&
+      !isSafeImageType(record.businessLicenseType)) ||
     typeof record.hasBankCard !== "boolean" ||
     !Array.isArray(record.phoneTokens) ||
     record.phoneTokens.length < 1 ||
@@ -802,6 +883,10 @@ async function summaryAuthTag(
   ) {
     fields.push(record.machineType ?? null, record.machineMode ?? null, record.feeRate ?? null);
   }
+  if (record.depositAmount !== undefined) fields.push(record.depositAmount);
+  if (record.address !== undefined) fields.push(record.address);
+  if (record.tags !== undefined) fields.push(record.tags);
+  if (record.businessLicenseType !== undefined) fields.push(record.businessLicenseType);
   return hmacToken(metadata.summaryAuthKey, JSON.stringify(fields));
 }
 

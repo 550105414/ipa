@@ -32,6 +32,11 @@ import {
   type CustomerMachineType,
 } from "@/lib/customers/machine";
 import {
+  CUSTOMER_CALL_RESULTS,
+  MAX_MACHINE_DEPOSIT,
+  type CustomerCallResult,
+} from "@/lib/customers/profile";
+import {
   bankCardDigits,
   formatBankCardNumber,
   isValidBankCardNumber,
@@ -75,6 +80,10 @@ type RawCustomerDetail = {
   machineType?: unknown;
   machineMode?: unknown;
   feeRate?: unknown;
+  depositAmount?: unknown;
+  address?: unknown;
+  tags?: unknown;
+  businessLicense?: { uploaded?: unknown };
 };
 
 async function readResponse<T>(
@@ -126,6 +135,17 @@ function normalizeCustomer(
     machineType: isCustomerMachineType(value.machineType) ? value.machineType : null,
     machineMode: isCustomerMachineMode(value.machineMode) ? value.machineMode : null,
     feeRate: isValidCustomerFeeRate(value.feeRate) ? value.feeRate : null,
+    depositAmount:
+      typeof value.depositAmount === "number" &&
+      Number.isFinite(value.depositAmount) &&
+      value.depositAmount >= 0
+        ? value.depositAmount
+        : null,
+    address: typeof value.address === "string" ? value.address : null,
+    tags: Array.isArray(value.tags)
+      ? value.tags.filter((tag): tag is string => typeof tag === "string")
+      : [],
+    businessLicense: { uploaded: Boolean(value.businessLicense?.uploaded) },
   };
 }
 
@@ -168,11 +188,15 @@ function localSummaryToCustomer(
     machineType: customer.machineType ?? null,
     machineMode: customer.machineMode ?? null,
     feeRate: customer.feeRate ?? null,
+    depositAmount: customer.depositAmount ?? null,
+    address: customer.address ?? null,
+    tags: customer.tags ?? [],
     createdAt: customer.createdAt,
     idCard: {
       frontUploaded: customer.idCard.frontUploaded,
       backUploaded: customer.idCard.backUploaded,
     },
+    businessLicense: customer.businessLicense,
   };
 }
 
@@ -192,6 +216,10 @@ function normalizeSensitiveData(value: CustomerSensitiveData): CustomerSensitive
     bankCardNumber:
       typeof value.bankCardNumber === "string"
         ? bankCardDigits(value.bankCardNumber)
+        : null,
+    businessLicenseUrl:
+      typeof value.businessLicenseUrl === "string"
+        ? value.businessLicenseUrl
         : null,
     demoMode: value.demoMode,
   };
@@ -280,8 +308,23 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
   const [machineTypeInput, setMachineTypeInput] = useState<"" | CustomerMachineType>("");
   const [machineModeInput, setMachineModeInput] = useState<"" | CustomerMachineMode>("");
   const [feeRateInput, setFeeRateInput] = useState("");
+  const [depositAmountInput, setDepositAmountInput] = useState("");
   const [isSavingMachine, setIsSavingMachine] = useState(false);
   const [machineMessage, setMachineMessage] = useState<string | null>(null);
+  const [addressInput, setAddressInput] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [businessLicenseFile, setBusinessLicenseFile] = useState<File | null>(null);
+  const [isSavingBusinessLicense, setIsSavingBusinessLicense] = useState(false);
+  const [businessLicenseMessage, setBusinessLicenseMessage] = useState<string | null>(null);
+  const [businessLicenseFormKey, setBusinessLicenseFormKey] = useState(0);
+  const [callResultInput, setCallResultInput] =
+    useState<CustomerCallResult>("已联系");
+  const [callNoteInput, setCallNoteInput] = useState("");
+  const [callFollowUpInput, setCallFollowUpInput] = useState("");
+  const [isSavingCall, setIsSavingCall] = useState(false);
+  const [callMessage, setCallMessage] = useState<string | null>(null);
   const [isDeletingCustomer, setIsDeletingCustomer] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const sensitiveRequest = useRef<AbortController | null>(null);
@@ -336,6 +379,9 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
     setSupplementBack(null);
     setIsSavingIdCard(false);
     setIdCardMessage(null);
+    setBusinessLicenseFile(null);
+    setIsSavingBusinessLicense(false);
+    setBusinessLicenseMessage(null);
   }, []);
 
   useEffect(() => {
@@ -361,6 +407,9 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
           setMachineTypeInput(cloudCustomer.machineType ?? "");
           setMachineModeInput(cloudCustomer.machineMode ?? "");
           setFeeRateInput(cloudCustomer.feeRate === null || cloudCustomer.feeRate === undefined ? "" : String(cloudCustomer.feeRate));
+          setDepositAmountInput(cloudCustomer.depositAmount === null || cloudCustomer.depositAmount === undefined ? "" : String(cloudCustomer.depositAmount));
+          setAddressInput(cloudCustomer.address ?? "");
+          setTagsInput((cloudCustomer.tags ?? []).join("，"));
           setCustomer(cloudCustomer);
           setIsUnlocking(true);
           setSensitiveError(null);
@@ -410,6 +459,9 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
         setMachineTypeInput(localCustomer.machineType ?? "");
         setMachineModeInput(localCustomer.machineMode ?? "");
         setFeeRateInput(localCustomer.feeRate === null || localCustomer.feeRate === undefined ? "" : String(localCustomer.feeRate));
+        setDepositAmountInput(localCustomer.depositAmount === null || localCustomer.depositAmount === undefined ? "" : String(localCustomer.depositAmount));
+        setAddressInput(localCustomer.address ?? "");
+        setTagsInput((localCustomer.tags ?? []).join("，"));
         setCustomer(localSummaryToCustomer(localCustomer));
         setIsLocalCustomer(true);
       } catch (loadError: unknown) {
@@ -543,6 +595,7 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
             backUrl: access.idCard.backUrl,
           },
           bankCardNumber: access.bankCardNumber,
+          businessLicenseUrl: access.businessLicense.url,
           demoMode: true,
         });
       } else {
@@ -792,11 +845,22 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
     event.preventDefault();
     if (isLocalCustomer || isSavingMachine) return;
     const parsedRate = feeRateInput === "" ? null : Number(feeRateInput);
+    const parsedDeposit =
+      depositAmountInput === "" ? null : Number(depositAmountInput);
     if (
       machineTypeInput !== "" &&
       (machineModeInput === "" || parsedRate === null || !isValidCustomerFeeRate(parsedRate))
     ) {
       setMachineMessage("请选择购买或赠送，并填写 0～100 之间的费率。");
+      return;
+    }
+    if (
+      parsedDeposit !== null &&
+      (!Number.isFinite(parsedDeposit) ||
+        parsedDeposit < 0 ||
+        parsedDeposit > MAX_MACHINE_DEPOSIT)
+    ) {
+      setMachineMessage("押金请输入 0～1,000,000 之间的金额。");
       return;
     }
     setIsSavingMachine(true);
@@ -806,6 +870,7 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
         machineType: CustomerMachineType | null;
         machineMode: CustomerMachineMode | null;
         feeRate: number | null;
+        depositAmount: number | null;
       }>(
         await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
           method: "PATCH",
@@ -814,6 +879,7 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
             machineType: machineTypeInput || null,
             machineMode: machineTypeInput ? machineModeInput || null : null,
             feeRate: machineTypeInput ? parsedRate : null,
+            depositAmount: machineTypeInput ? parsedDeposit : null,
           }),
           cache: "no-store",
         }),
@@ -823,11 +889,158 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
       setMachineTypeInput(result.machineType ?? "");
       setMachineModeInput(result.machineMode ?? "");
       setFeeRateInput(result.feeRate === null ? "" : String(result.feeRate));
-      setMachineMessage(result.machineType ? "机器与费率已保存。" : "已清空机器信息。");
+      setDepositAmountInput(result.depositAmount === null ? "" : String(result.depositAmount));
+      setMachineMessage(result.machineType ? "机器、费率和押金已保存。" : "已清空机器信息。");
     } catch {
       setMachineMessage("机器信息保存失败，请稍后重试。");
     } finally {
       setIsSavingMachine(false);
+    }
+  }
+
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isLocalCustomer || isSavingProfile) return;
+    const tags = Array.from(
+      new Set(
+        tagsInput
+          .split(/[，,]/)
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      ),
+    );
+    if (addressInput.trim().length > 200) {
+      setProfileMessage("客户地址不能超过 200 个字符。");
+      return;
+    }
+    if (tags.length > 8 || tags.some((tag) => tag.length > 20)) {
+      setProfileMessage("最多填写 8 个标签，每个不超过 20 个字符。");
+      return;
+    }
+    setIsSavingProfile(true);
+    setProfileMessage(null);
+    try {
+      const result = await readResponse<{
+        address: string | null;
+        tags: string[];
+      }>(
+        await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+          method: "PATCH",
+          headers: customerRequestHeaders(true),
+          body: JSON.stringify({ address: addressInput.trim() || null, tags }),
+          cache: "no-store",
+        }),
+        "地址和标签保存失败，请稍后重试",
+      );
+      setCustomer((current) => (current ? { ...current, ...result } : current));
+      setAddressInput(result.address ?? "");
+      setTagsInput(result.tags.join("，"));
+      setProfileMessage("地址和客户标签已保存。");
+    } catch {
+      setProfileMessage("地址和标签保存失败，请稍后重试。");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
+
+  function handleBusinessLicense(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setBusinessLicenseMessage(null);
+    if (file && (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024)) {
+      setBusinessLicenseMessage("请选择 10MB 以内的营业执照图片。");
+      event.target.value = "";
+      return;
+    }
+    setBusinessLicenseFile(file);
+  }
+
+  async function saveBusinessLicense(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isLocalCustomer) {
+      setBusinessLicenseMessage("旧的本机档案请重新新增到云端后补资料。");
+      return;
+    }
+    if (!businessLicenseFile || isSavingBusinessLicense) return;
+    setIsSavingBusinessLicense(true);
+    setBusinessLicenseMessage(null);
+    const form = new FormData();
+    form.append("businessLicense", businessLicenseFile, "business-license");
+    try {
+      const result = await readResponse<{ uploaded: boolean }>(
+        await fetch(
+          `/api/customers/${encodeURIComponent(customerId)}/business-license`,
+          {
+            method: "PUT",
+            headers: customerRequestHeaders(),
+            body: form,
+            cache: "no-store",
+          },
+        ),
+        "营业执照保存失败，请稍后重试",
+      );
+      const version = Date.now();
+      setCustomer((current) =>
+        current
+          ? { ...current, businessLicense: { uploaded: result.uploaded } }
+          : current,
+      );
+      setSensitiveData((current) =>
+        current
+          ? {
+              ...current,
+              businessLicenseUrl: result.uploaded
+                ? `/api/customers/${customerId}/business-license?v=${version}`
+                : null,
+            }
+          : current,
+      );
+      setBusinessLicenseFile(null);
+      setBusinessLicenseFormKey((value) => value + 1);
+      setBusinessLicenseMessage("营业执照已保存，手机和电脑会同步显示。");
+    } catch {
+      setBusinessLicenseMessage("营业执照保存失败，请稍后重试。");
+    } finally {
+      setIsSavingBusinessLicense(false);
+    }
+  }
+
+  async function saveCallActivity(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isLocalCustomer || isSavingCall) return;
+    setIsSavingCall(true);
+    setCallMessage(null);
+    try {
+      const result = await readResponse<{
+        summary: string;
+        nextFollowUpAt: string | null;
+      }>(
+        await fetch(`/api/customers/${encodeURIComponent(customerId)}/activity`, {
+          method: "POST",
+          headers: customerRequestHeaders(true),
+          body: JSON.stringify({
+            result: callResultInput,
+            note: callNoteInput.trim(),
+            nextFollowUpAt: callFollowUpInput
+              ? new Date(callFollowUpInput).toISOString()
+              : undefined,
+          }),
+          cache: "no-store",
+        }),
+        "联系记录保存失败，请稍后重试",
+      );
+      setCustomer((current) =>
+        current
+          ? { ...current, nextFollowUpAt: result.nextFollowUpAt }
+          : current,
+      );
+      setFollowUpInput(toDateTimeLocal(result.nextFollowUpAt));
+      setCallFollowUpInput("");
+      setCallNoteInput("");
+      setCallMessage(`已记录：${result.summary}`);
+    } catch {
+      setCallMessage("联系记录保存失败，请稍后重试。");
+    } finally {
+      setIsSavingCall(false);
     }
   }
 
@@ -1344,7 +1557,7 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
                       身份证正面
                       <input
                         type="file"
-                        accept="image/jpeg,image/png,image/webp"
+                        accept="image/*"
                         onChange={(event) => handleSupplementDocument(event, "front")}
                         className="mt-2 block w-full text-xs font-normal file:mr-2 file:rounded-lg file:border-0 file:bg-[#eef4ff] file:px-3 file:py-2 file:font-semibold file:text-[#2859d9]"
                       />
@@ -1353,7 +1566,7 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
                       身份证反面
                       <input
                         type="file"
-                        accept="image/jpeg,image/png,image/webp"
+                        accept="image/*"
                         onChange={(event) => handleSupplementDocument(event, "back")}
                         className="mt-2 block w-full text-xs font-normal file:mr-2 file:rounded-lg file:border-0 file:bg-[#eef4ff] file:px-3 file:py-2 file:font-semibold file:text-[#2859d9]"
                       />
@@ -1368,6 +1581,47 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
                   </button>
                   {idCardMessage && (
                     <p role="status" className="mt-2 text-xs leading-5 text-[#5f6b7a]">{idCardMessage}</p>
+                  )}
+                </form>
+              </div>
+
+              <div className="mt-6">
+                <h3 className="text-sm font-semibold">营业执照</h3>
+                <p className="mt-1 text-xs leading-5 text-[#7a8699]">
+                  支持手机拍照或从相册选择；图片只在当前账号的客户详情和导出资料中显示。
+                </p>
+                <div className="mt-4 max-w-xl">
+                  <SensitiveImage
+                    title="营业执照"
+                    url={sensitiveData.businessLicenseUrl ?? null}
+                    alt={`${customer.name}的营业执照图片`}
+                  />
+                </div>
+                <form
+                  key={businessLicenseFormKey}
+                  onSubmit={saveBusinessLicense}
+                  className="mt-4 rounded-xl border border-[#d9e4fb] bg-[#f8faff] p-4"
+                >
+                  <label className="block rounded-xl border border-dashed border-[#bfcde2] bg-white p-3 text-xs font-semibold text-[#526071]">
+                    补充或替换营业执照
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleBusinessLicense}
+                      className="mt-2 block w-full text-xs font-normal file:mr-2 file:rounded-lg file:border-0 file:bg-[#eef4ff] file:px-3 file:py-2 file:font-semibold file:text-[#2859d9]"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={!businessLicenseFile || isSavingBusinessLicense}
+                    className="mt-3 h-11 w-full rounded-xl bg-[#2f6bff] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isSavingBusinessLicense ? "正在保存并同步…" : "保存营业执照"}
+                  </button>
+                  {businessLicenseMessage && (
+                    <p role="status" className="mt-2 text-xs leading-5 text-[#5f6b7a]">
+                      {businessLicenseMessage}
+                    </p>
                   )}
                 </form>
               </div>
@@ -1463,7 +1717,53 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
                     <dt className="text-sm text-[#7a8699]">费率</dt>
                     <dd className="text-right text-sm font-semibold text-[#2f6bff]">{customer.feeRate}%</dd>
                   </div>
+                  <div className="flex items-start justify-between gap-4 py-4">
+                    <dt className="text-sm text-[#7a8699]">机器押金</dt>
+                    <dd className="text-right text-sm font-semibold text-[#344054]">
+                      {customer.depositAmount === null || customer.depositAmount === undefined
+                        ? "未填写"
+                        : `¥${customer.depositAmount.toLocaleString("zh-CN")}`}
+                    </dd>
+                  </div>
                 </>
+              )}
+              {customer.address && (
+                <div className="flex items-start justify-between gap-4 py-4">
+                  <dt className="text-sm text-[#7a8699]">客户地址</dt>
+                  <dd className="max-w-[70%] text-right text-sm font-medium text-[#344054]">
+                    <span className="block">{customer.address}</span>
+                    <span className="mt-2 flex flex-wrap justify-end gap-2">
+                      <a
+                        href={`https://maps.apple.com/?q=${encodeURIComponent(customer.address)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-semibold text-[#2f6bff]"
+                      >
+                        苹果地图
+                      </a>
+                      <a
+                        href={`https://uri.amap.com/search?keyword=${encodeURIComponent(customer.address)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-semibold text-[#2f6bff]"
+                      >
+                        高德地图
+                      </a>
+                    </span>
+                  </dd>
+                </div>
+              )}
+              {(customer.tags?.length ?? 0) > 0 && (
+                <div className="flex items-start justify-between gap-4 py-4">
+                  <dt className="text-sm text-[#7a8699]">客户标签</dt>
+                  <dd className="flex max-w-[70%] flex-wrap justify-end gap-1.5">
+                    {customer.tags?.map((tag) => (
+                      <span key={tag} className="rounded-full bg-[#eef4ff] px-2.5 py-1 text-xs font-semibold text-[#2859d9]">
+                        {tag}
+                      </span>
+                    ))}
+                  </dd>
+                </div>
               )}
               {customer.merchantName && (
                 <div className="flex items-start justify-between gap-4 py-4">
@@ -1504,11 +1804,58 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
             </form>
 
             <form
+              onSubmit={saveProfile}
+              className="mt-5 rounded-xl border border-[#d9e4fb] bg-[#f8faff] p-4"
+            >
+              <p className="text-xs font-semibold text-[#7a8699]">地址与客户标签</p>
+              <div className="mt-3 grid gap-3">
+                <label className="text-xs font-semibold text-[#667085]">
+                  客户地址
+                  <textarea
+                    value={addressInput}
+                    maxLength={200}
+                    disabled={isLocalCustomer}
+                    onChange={(event) => {
+                      setAddressInput(event.target.value);
+                      setProfileMessage(null);
+                    }}
+                    placeholder="门店或客户地址，保存后可直接打开地图导航"
+                    className="mt-2 min-h-20 w-full resize-y rounded-lg border border-[#d9e2f0] bg-white px-3 py-2 text-sm font-normal outline-none focus:border-[#2f6bff] disabled:opacity-50"
+                  />
+                </label>
+                <label className="text-xs font-semibold text-[#667085]">
+                  客户标签
+                  <input
+                    type="text"
+                    value={tagsInput}
+                    disabled={isLocalCustomer}
+                    onChange={(event) => {
+                      setTagsInput(event.target.value);
+                      setProfileMessage(null);
+                    }}
+                    placeholder="例如：重点客户，餐饮，待装机（逗号分隔）"
+                    className="mt-2 h-10 w-full rounded-lg border border-[#d9e2f0] bg-white px-3 text-sm font-normal outline-none focus:border-[#2f6bff] disabled:opacity-50"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={isLocalCustomer || isSavingProfile}
+                  className="h-10 rounded-lg bg-[#2f6bff] px-4 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {isSavingProfile ? "正在保存…" : "保存地址与标签"}
+                </button>
+              </div>
+              {profileMessage && (
+                <p role="status" className="mt-2 text-xs text-[#5f6b7a]">{profileMessage}</p>
+              )}
+            </form>
+
+            <form
               onSubmit={saveMachine}
               className="mt-5 rounded-xl border border-[#d9e4fb] bg-[#f8faff] p-4"
             >
               <p className="text-xs font-semibold text-[#7a8699]">机器与费率</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]">
                 <select
                   aria-label="机器"
                   value={machineTypeInput}
@@ -1519,6 +1866,7 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
                     if (!value) {
                       setMachineModeInput("");
                       setFeeRateInput("");
+                      setDepositAmountInput("");
                     }
                     setMachineMessage(null);
                   }}
@@ -1559,12 +1907,87 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
                   />
                   <span className="pointer-events-none absolute inset-y-0 right-3 grid place-items-center text-xs text-[#667085]">%</span>
                 </div>
+                <div className="relative">
+                  <input
+                    aria-label="机器押金"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    max={MAX_MACHINE_DEPOSIT}
+                    step="0.01"
+                    value={depositAmountInput}
+                    disabled={isLocalCustomer || !machineTypeInput}
+                    onChange={(event) => {
+                      setDepositAmountInput(event.target.value);
+                      setMachineMessage(null);
+                    }}
+                    placeholder="押金"
+                    className="h-10 w-full rounded-lg border border-[#d9e2f0] bg-white px-3 pr-8 text-sm outline-none focus:border-[#2f6bff] disabled:opacity-50"
+                  />
+                  <span className="pointer-events-none absolute inset-y-0 right-3 grid place-items-center text-xs text-[#667085]">元</span>
+                </div>
                 <button type="submit" disabled={isLocalCustomer || isSavingMachine} className="h-10 rounded-lg bg-[#2f6bff] px-4 text-sm font-semibold text-white disabled:opacity-50">
                   {isSavingMachine ? "保存中…" : "保存"}
                 </button>
               </div>
               {isLocalCustomer && <p className="mt-2 text-xs text-[#7a8699]">本机旧档案会显示已保存的信息；云端同步启用后可在这里修改。</p>}
               {machineMessage && <p role="status" className="mt-2 text-xs text-[#5f6b7a]">{machineMessage}</p>}
+            </form>
+
+            <form
+              onSubmit={saveCallActivity}
+              className="mt-5 rounded-xl border border-[#d9e4fb] bg-[#f8faff] p-4"
+            >
+              <p className="text-xs font-semibold text-[#7a8699]">快速记录本次联系</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <select
+                  aria-label="联系结果"
+                  value={callResultInput}
+                  disabled={isLocalCustomer}
+                  onChange={(event) => {
+                    setCallResultInput(event.target.value as CustomerCallResult);
+                    setCallMessage(null);
+                  }}
+                  className="h-10 rounded-lg border border-[#d9e2f0] bg-white px-3 text-sm outline-none focus:border-[#2f6bff] disabled:opacity-50"
+                >
+                  {CUSTOMER_CALL_RESULTS.map((result) => (
+                    <option key={result} value={result}>{result}</option>
+                  ))}
+                </select>
+                <input
+                  type="datetime-local"
+                  aria-label="本次联系后的下次跟进时间"
+                  value={callFollowUpInput}
+                  disabled={isLocalCustomer}
+                  onChange={(event) => {
+                    setCallFollowUpInput(event.target.value);
+                    setCallMessage(null);
+                  }}
+                  className="h-10 rounded-lg border border-[#d9e2f0] bg-white px-3 text-sm outline-none focus:border-[#2f6bff] disabled:opacity-50"
+                />
+                <textarea
+                  aria-label="联系备注"
+                  maxLength={300}
+                  value={callNoteInput}
+                  disabled={isLocalCustomer}
+                  onChange={(event) => {
+                    setCallNoteInput(event.target.value);
+                    setCallMessage(null);
+                  }}
+                  placeholder="记录沟通情况、客户意向或承诺事项"
+                  className="min-h-20 resize-y rounded-lg border border-[#d9e2f0] bg-white px-3 py-2 text-sm outline-none focus:border-[#2f6bff] disabled:opacity-50 sm:col-span-2"
+                />
+                <button
+                  type="submit"
+                  disabled={isLocalCustomer || isSavingCall}
+                  className="h-10 rounded-lg bg-[#2f6bff] px-4 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2"
+                >
+                  {isSavingCall ? "正在记录…" : "保存联系记录"}
+                </button>
+              </div>
+              {callMessage && (
+                <p role="status" className="mt-2 text-xs leading-5 text-[#5f6b7a]">{callMessage}</p>
+              )}
             </form>
 
             <form

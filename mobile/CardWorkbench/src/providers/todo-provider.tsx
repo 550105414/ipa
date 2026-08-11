@@ -1,5 +1,6 @@
 import { useSQLiteContext } from 'expo-sqlite';
 import { createContext, type PropsWithChildren, use, useCallback, useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
 
 import {
   getCategories,
@@ -10,6 +11,7 @@ import {
   updateTask as updateTaskInDatabase,
 } from '@/lib/database';
 import { formatDueDate } from '@/lib/date';
+import { syncTaskNotifications } from '@/lib/todo-notifications';
 import type { NewTodoInput, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
 import { syncTodoWidget } from '@/widgets/todo-widget';
 
@@ -56,6 +58,7 @@ export function TodoProvider({ children }: PropsWithChildren) {
       } catch {
         // Keep the app usable if WidgetKit is temporarily unavailable.
       }
+      void syncTaskNotifications(nextTasks).catch(() => undefined);
       setErrorMessage(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '待办数据读取失败');
@@ -67,6 +70,15 @@ export function TodoProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     void refresh().catch(() => undefined);
+  }, [refresh]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void refresh().catch(() => undefined);
+      }
+    });
+    return () => subscription.remove();
   }, [refresh]);
 
   const addTask = useCallback(

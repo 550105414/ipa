@@ -8,6 +8,11 @@ import {
   isValidCustomerFeeRate,
 } from "@/lib/customers/machine";
 import {
+  normalizeCustomerAddress,
+  normalizeCustomerTags,
+  normalizeMachineDeposit,
+} from "@/lib/customers/profile";
+import {
   BankCardConfigurationError,
   encryptBankCardNumber,
   InvalidBankCardError,
@@ -41,6 +46,7 @@ import {
 import {
   activityStatement,
   apiError as workspaceApiError,
+  customerBusinessLicenseObjectKey,
   customerObjectKey,
   getWorkspaceBindings,
   isWorkspaceCloudConfigured,
@@ -49,12 +55,14 @@ import {
   workspaceUserId,
 } from "@/lib/workspace/server";
 
-const MAX_MULTIPART_BYTES = 22 * 1024 * 1024;
+const MAX_MULTIPART_BYTES = 33 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
   "image/webp",
+  "image/heic",
+  "image/heif",
 ]);
 const ALLOWED_FIELDS = new Set([
   "name",
@@ -69,6 +77,10 @@ const ALLOWED_FIELDS = new Set([
   "machineType",
   "machineMode",
   "feeRate",
+  "depositAmount",
+  "address",
+  "tags",
+  "businessLicense",
 ]);
 
 interface CreateCustomerRpcRow {
@@ -131,7 +143,7 @@ export async function POST(request: Request): Promise<Response> {
 
   let form: FormData;
   try {
-    form = await request.formData();
+    form = (await request.formData()) as unknown as FormData;
   } catch {
     return errorResponse(400, "INVALID_CUSTOMER_FORM", "客户录入表单无效");
   }
@@ -287,7 +299,7 @@ async function createWorkspaceCustomer(request: Request): Promise<Response> {
 
   let form: FormData;
   try {
-    form = await request.formData();
+    form = (await request.formData()) as unknown as FormData;
   } catch {
     return workspaceApiError(400, "INVALID_CUSTOMER_FORM", "客户录入表单无效");
   }
@@ -305,6 +317,18 @@ async function createWorkspaceCustomer(request: Request): Promise<Response> {
   const machineType = machineTypeInput || null;
   const machineMode = machineModeInput || null;
   const feeRate = feeRateInput ? Number(feeRateInput) : null;
+  const depositInput = readText(form, "depositAmount");
+  let depositAmount: number | null;
+  let address: string | null;
+  let tags: string[];
+  try {
+    depositAmount = normalizeMachineDeposit(depositInput);
+    address = normalizeCustomerAddress(readText(form, "address"));
+    const tagsInput = readText(form, "tags");
+    tags = normalizeCustomerTags(tagsInput ? JSON.parse(tagsInput) : []);
+  } catch {
+    return workspaceApiError(400, "INVALID_CUSTOMER_PROFILE", "押金、地址或客户标签格式无效");
+  }
   const nextFollowUpAtInput = readText(form, "nextFollowUpAt");
   const nextFollowUpAt = nextFollowUpAtInput
     ? new Date(nextFollowUpAtInput)
@@ -313,6 +337,10 @@ async function createWorkspaceCustomer(request: Request): Promise<Response> {
   const backValue = form.get("idCardBack");
   const front = frontValue instanceof File && frontValue.size > 0 ? frontValue : null;
   const back = backValue instanceof File && backValue.size > 0 ? backValue : null;
+  const licenseValue = form.get("businessLicense");
+  const businessLicense = licenseValue instanceof File && licenseValue.size > 0
+    ? licenseValue
+    : null;
   if (!name || name.length > 100) {
     return workspaceApiError(400, "INVALID_CUSTOMER_NAME", "请输入 1～100 个字符的姓名");
   }
@@ -332,7 +360,14 @@ async function createWorkspaceCustomer(request: Request): Promise<Response> {
   ) {
     return workspaceApiError(400, "INVALID_MACHINE_DETAILS", "请选择机器、购买方式并填写 0～100 之间的费率");
   }
-  if ((front && !isAcceptedImage(front)) || (back && !isAcceptedImage(back))) {
+  if (machineType === null && depositAmount !== null) {
+    return workspaceApiError(400, "INVALID_MACHINE_DEPOSIT", "选择机器后才能填写押金");
+  }
+  if (
+    (front && !isAcceptedImage(front)) ||
+    (back && !isAcceptedImage(back)) ||
+    (businessLicense && !isAcceptedImage(businessLicense))
+  ) {
     return workspaceApiError(400, "INVALID_ID_CARD_IMAGES", "请上传 10MB 以内的 JPG、PNG 或 WebP 图片");
   }
 
@@ -372,6 +407,9 @@ async function createWorkspaceCustomer(request: Request): Promise<Response> {
 
   const frontKey = front ? customerObjectKey(userId, customerId, "front") : null;
   const backKey = back ? customerObjectKey(userId, customerId, "back") : null;
+  const businessLicenseKey = businessLicense
+    ? customerBusinessLicenseObjectKey(userId, customerId)
+    : null;
   const uploadedKeys: string[] = [];
   try {
     if (front && frontKey) {
@@ -388,17 +426,25 @@ async function createWorkspaceCustomer(request: Request): Promise<Response> {
       });
       uploadedKeys.push(backKey);
     }
+    if (businessLicense && businessLicenseKey) {
+      await files.put(businessLicenseKey, businessLicense.stream(), {
+        httpMetadata: { contentType: businessLicense.type },
+        customMetadata: { ownerId: userId, customerId, kind: "business-license" },
+      });
+      uploadedKeys.push(businessLicenseKey);
+    }
     const now = new Date().toISOString();
     await db.batch([
       db.prepare(
         `INSERT INTO customers (
           id, owner_id, name, phone, shop_name, category,
           machine_type, machine_mode, fee_rate,
-          id_card_front_key, id_card_back_key,
+          deposit_amount, address, tags_json,
+          id_card_front_key, id_card_back_key, business_license_key,
           bank_card_ciphertext, bank_card_last4,
           next_follow_up_at, deleted_at, purge_after,
           created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, NULL, ?15, ?16)`,
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, NULL, ?19, ?20)`,
       )
       .bind(
         customerId,
@@ -410,8 +456,12 @@ async function createWorkspaceCustomer(request: Request): Promise<Response> {
         machineType,
         machineMode,
         feeRate,
+        depositAmount,
+        address,
+        JSON.stringify(tags),
         frontKey,
         backKey,
+        businessLicenseKey,
         encryptedBankCard?.ciphertext ?? null,
         encryptedBankCard?.last4 ?? null,
         nextFollowUpAt?.toISOString() ?? null,

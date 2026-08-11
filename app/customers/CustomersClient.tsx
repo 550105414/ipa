@@ -69,6 +69,12 @@ function localSummaryToSearchItem(
     maskedPhone: customer.maskedPhone,
     profileStatus: customer.profileStatus,
     category: customer.category,
+    machineType: customer.machineType ?? null,
+    machineMode: customer.machineMode ?? null,
+    feeRate: customer.feeRate ?? null,
+    depositAmount: customer.depositAmount ?? null,
+    address: customer.address ?? null,
+    tags: customer.tags ?? [],
     createdAt: customer.createdAt,
   };
 }

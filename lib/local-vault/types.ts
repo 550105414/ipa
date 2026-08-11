@@ -16,12 +16,16 @@ export type LocalCustomerSummary = {
   machineType?: CustomerMachineType | null;
   machineMode?: CustomerMachineMode | null;
   feeRate?: number | null;
+  depositAmount?: number | null;
+  address?: string | null;
+  tags?: string[];
   createdAt: string;
   idCard: {
     frontUploaded: boolean;
     backUploaded: boolean;
   };
   hasBankCard: boolean;
+  businessLicense: { uploaded: boolean };
 };
 
 export type SaveLocalCustomerInput = {
@@ -31,11 +35,15 @@ export type SaveLocalCustomerInput = {
   phone: string;
   idCardFront?: Blob | null;
   idCardBack?: Blob | null;
+  businessLicense?: Blob | null;
   bankCardNumber?: string | null;
   category?: LocalCustomerCategory;
   machineType?: CustomerMachineType | null;
   machineMode?: CustomerMachineMode | null;
   feeRate?: number | null;
+  depositAmount?: number | null;
+  address?: string | null;
+  tags?: string[];
   status?: LocalCustomerProfileStatus;
   createdAt?: string;
 };
@@ -67,6 +75,10 @@ export type LocalCustomerAccess = LocalCustomerSummary & {
     backBlob: Blob | null;
     frontUrl: string | null;
     backUrl: string | null;
+  };
+  businessLicense: LocalCustomerSummary["businessLicense"] & {
+    blob: Blob | null;
+    url: string | null;
   };
   revoke(): void;
 };

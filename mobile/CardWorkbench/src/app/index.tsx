@@ -67,7 +67,7 @@ export default function HomeScreen() {
         ]}>
         <View style={styles.header}>
           <Text selectable style={styles.title}>
-            MarkTodo
+            牛马
           </Text>
           <View style={styles.headerActions}>
             <Pressable
@@ -93,6 +93,21 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         </View>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="打开客户工作台"
+          onPress={() => router.push('/workspace' as never)}
+          style={({ pressed }) => [styles.workspaceCard, { opacity: pressed ? 0.72 : 1 }]}>
+          <View style={styles.workspaceIcon}>
+            <SymbolIcon name="person.2.fill" color={colors.white} size={24} />
+          </View>
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text selectable style={styles.workspaceTitle}>客户工作台</Text>
+            <Text selectable style={styles.workspaceSubtitle}>客户、证件、营业执照和跟进资料云端同步</Text>
+          </View>
+          <SymbolIcon name="chevron.right" color={colors.blue} size={18} />
+        </Pressable>
 
         <ScreenState
           isLoading={isLoading}
@@ -164,6 +179,37 @@ const styles = StyleSheet.create({
   board: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+  },
+  workspaceCard: {
+    minHeight: 86,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderRadius: 20,
+    borderCurve: 'continuous',
+    backgroundColor: colors.card,
+    boxShadow: '0 6px 20px rgba(52, 121, 200, 0.10)',
+  },
+  workspaceIcon: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    backgroundColor: colors.blue,
+  },
+  workspaceTitle: {
+    color: colors.label,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  workspaceSubtitle: {
+    color: colors.secondaryLabel,
+    fontSize: 12,
+    lineHeight: 17,
   },
   column: {
     gap: 13,

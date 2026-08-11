@@ -14,8 +14,12 @@ export interface WorkspaceCustomerRow {
   machine_type: CustomerMachineType | null;
   machine_mode: CustomerMachineMode | null;
   fee_rate: number | null;
+  deposit_amount: number | null;
+  address: string | null;
+  tags_json: string;
   id_card_front_key: string | null;
   id_card_back_key: string | null;
+  business_license_key: string | null;
   bank_card_ciphertext: string | null;
   bank_card_last4: string | null;
   next_follow_up_at: string | null;
@@ -76,8 +80,12 @@ async function ensureWorkspaceSchema(db: D1Database): Promise<void> {
         machine_type TEXT,
         machine_mode TEXT,
         fee_rate REAL,
+        deposit_amount REAL,
+        address TEXT,
+        tags_json TEXT NOT NULL DEFAULT '[]',
         id_card_front_key TEXT,
         id_card_back_key TEXT,
+        business_license_key TEXT,
         bank_card_ciphertext TEXT,
         bank_card_last4 TEXT,
         next_follow_up_at TEXT,
@@ -141,7 +149,22 @@ async function ensureWorkspaceSchema(db: D1Database): Promise<void> {
       "CREATE INDEX IF NOT EXISTS idx_tasks_owner_status_due ON tasks (owner_id, status, due_at)",
     ),
   ]);
+  await ensureCustomerColumns(db);
   await db.prepare("PRAGMA optimize").run();
+}
+
+async function ensureCustomerColumns(db: D1Database): Promise<void> {
+  const columns = await db.prepare("PRAGMA table_info(customers)").all<{ name: string }>();
+  const names = new Set((columns.results ?? []).map((column) => column.name));
+  const additions = [
+    ["deposit_amount", "ALTER TABLE customers ADD COLUMN deposit_amount REAL"],
+    ["address", "ALTER TABLE customers ADD COLUMN address TEXT"],
+    ["tags_json", "ALTER TABLE customers ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"],
+    ["business_license_key", "ALTER TABLE customers ADD COLUMN business_license_key TEXT"],
+  ] as const;
+  for (const [name, statement] of additions) {
+    if (!names.has(name)) await db.prepare(statement).run();
+  }
 }
 
 export async function isWorkspaceCloudConfigured(): Promise<boolean> {
@@ -187,6 +210,13 @@ export function customerObjectKey(
   return `customers/${encodeURIComponent(ownerId)}/${customerId}/id-card-${side}`;
 }
 
+export function customerBusinessLicenseObjectKey(
+  ownerId: string,
+  customerId: string,
+): string {
+  return `customers/${encodeURIComponent(ownerId)}/${customerId}/business-license`;
+}
+
 export function privateJson<T>(body: T, status = 200, headers?: HeadersInit): Response {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("Cache-Control", "private, no-store");
@@ -220,8 +250,9 @@ export async function findOwnedCustomer(
   const row = await db
     .prepare(
       `SELECT id, owner_id, name, phone, shop_name, category,
-              machine_type, machine_mode, fee_rate,
-              id_card_front_key, id_card_back_key,
+              machine_type, machine_mode, fee_rate, deposit_amount,
+              address, tags_json,
+              id_card_front_key, id_card_back_key, business_license_key,
               bank_card_ciphertext, bank_card_last4,
               next_follow_up_at, deleted_at, purge_after,
               created_at, updated_at

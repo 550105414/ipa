@@ -9,7 +9,7 @@ const {
 
 const WIDGET_BUNDLE_IDENTIFIER = 'com.xiaoke.salesworkspace.TodoWidget';
 const WIDGET_TARGET_NAME = 'ExpoWidgetsTarget';
-const WIDGET_DISPLAY_NAME = '个人工作台';
+const WIDGET_DISPLAY_NAME = '工作台待办';
 const REQUIRED_DEPLOYMENT_TARGET = '16.1';
 const NATIVE_WIDGET_MARKER = '// CardWorkbench native widget fallback';
 

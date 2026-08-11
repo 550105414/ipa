@@ -11,6 +11,7 @@ import {
   updateTask as updateTaskInDatabase,
 } from '@/lib/database';
 import { formatDueDate } from '@/lib/date';
+import { syncWorkspaceTasks } from '@/lib/task-sync';
 import { syncTaskNotifications } from '@/lib/todo-notifications';
 import type { NewTodoInput, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
 import { syncTodoWidget } from '@/widgets/todo-widget';
@@ -38,6 +39,10 @@ export function TodoProvider({ children }: PropsWithChildren) {
 
   const refresh = useCallback(async () => {
     try {
+      // Cloud sync is best-effort: SQLite remains the source available offline.
+      // Once paired, this pulls computer/web changes before refreshing the UI
+      // and WidgetKit snapshot, and pushes any pending phone changes.
+      await syncWorkspaceTasks(database).catch(() => undefined);
       const [nextCategories, nextTasks] = await Promise.all([
         getCategories(database),
         getTasks(database),

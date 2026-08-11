@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/bottom-navigation';
@@ -71,12 +72,25 @@ export default function PlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { tasks, isLoading, errorMessage, refresh, toggleCompleted, toggleStarred } = useTodos();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const pendingTasks = tasks.filter((task) => !task.completedAt);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   return (
     <View style={styles.screen}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />
+        }
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scrollContent,

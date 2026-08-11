@@ -11,7 +11,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!(await isWorkspaceCloudConfigured())) {
     return privateJson({ duplicate: false });
   }
-  const userId = workspaceUserId(request);
+  const userId = await workspaceUserId(request);
   if (!userId) return apiError(401, "AUTH_REQUIRED", "请先登录后再检查手机号");
   let body: { phone?: unknown };
   try {

@@ -20,7 +20,7 @@ export async function GET(request: Request): Promise<Response> {
   if (!(await isWorkspaceCloudConfigured())) {
     return apiError(409, "CLOUD_SYNC_REQUIRED", "操作记录需要启用云端同步");
   }
-  const userId = workspaceUserId(request);
+  const userId = await workspaceUserId(request);
   if (!userId) return apiError(401, "AUTH_REQUIRED", "请先登录后再查看操作记录");
   const customerId = new URL(request.url).searchParams.get("customerId")?.trim() ?? "";
   if (customerId && !isUuid(customerId)) {

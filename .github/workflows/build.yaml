@@ -28,8 +28,8 @@ jobs:
       # generated project name (`app`), not from this repository folder name.
       SCHEME: app
       WIDGET_TARGET: ExpoWidgetsTarget
-      APP_VERSION: 1.2.0
-      APP_BUILD: "4"
+      APP_VERSION: 1.3.0
+      APP_BUILD: "5"
       WIDGET_DISPLAY_NAME: 工作台待办
 
     steps:
@@ -386,6 +386,8 @@ jobs:
           widget_entitlements = Path(sys.argv[3])
           runner_temp = Path(os.environ["RUNNER_TEMP"])
           expected_group = "group.com.xiaoke.salesworkspace"
+          expected_widget_container = os.environ["WIDGET_BUNDLE_ID"]
+          container_entitlement = "com.apple.private.security.container-required"
           fallback_entitlements = {
               "application-identifier": "TROLLTROLL.*",
               "com.apple.developer.team-identifier": "TROLLTROLL",
@@ -393,7 +395,12 @@ jobs:
               "keychain-access-groups": ["TROLLTROLL.*", "com.apple.token"],
           }
 
-          def prepare_entitlements(source: Path, destination: Path, name: str) -> Path:
+          def prepare_entitlements(
+              source: Path,
+              destination: Path,
+              name: str,
+              container_identifier=None,
+          ) -> Path:
               with source.open("rb") as input_file:
                   values = plistlib.load(input_file)
               if values.get("com.apple.security.application-groups") != [expected_group]:
@@ -401,6 +408,10 @@ jobs:
               if "aps-environment" in values:
                   raise SystemExit(f"Unexpected {name} push entitlement.")
               values.update(fallback_entitlements)
+              if container_identifier is None:
+                  values.pop(container_entitlement, None)
+              else:
+                  values[container_entitlement] = container_identifier
               with destination.open("wb") as output_file:
                   plistlib.dump(values, output_file, sort_keys=True)
               return destination
@@ -414,6 +425,7 @@ jobs:
               widget_entitlements,
               runner_temp / "widget-trollstore-entitlements.plist",
               "widget",
+              expected_widget_container,
           )
 
           def depth(path: Path) -> int:
@@ -491,11 +503,13 @@ jobs:
           codesign -d --entitlements :- "$widget" \
             > "$RUNNER_TEMP/widget-entitlements.plist" 2>> "$RUNNER_TEMP/logs-raw/codesign-widget.log"
           python3 - "$RUNNER_TEMP/app-entitlements.plist" \
-            "$RUNNER_TEMP/widget-entitlements.plist" "$APP_GROUP_ID" <<'PY'
+            "$RUNNER_TEMP/widget-entitlements.plist" "$APP_GROUP_ID" \
+            "$WIDGET_BUNDLE_ID" <<'PY'
           import plistlib
           import sys
 
-          app_path, widget_path, expected_group = sys.argv[1:]
+          app_path, widget_path, expected_group, expected_widget_container = sys.argv[1:]
+          container_entitlement = "com.apple.private.security.container-required"
           expected = {
               "application-identifier": "TROLLTROLL.*",
               "com.apple.developer.team-identifier": "TROLLTROLL",
@@ -513,6 +527,15 @@ jobs:
                       )
               if "aps-environment" in values:
                   raise SystemExit(f"Unexpected signed {name} push entitlement.")
+              if name == "app" and container_entitlement in values:
+                  raise SystemExit(
+                      f"The main app must not contain {container_entitlement}."
+                  )
+              if name == "widget" and values.get(container_entitlement) != expected_widget_container:
+                  raise SystemExit(
+                      f"Unexpected widget container entitlement: "
+                      f"{values.get(container_entitlement)!r}."
+                  )
           PY
 
           if ! lipo -archs "$executable" | tr ' ' '\n' | grep -qx 'arm64'; then
@@ -601,6 +624,32 @@ jobs:
           fi
           codesign --verify --deep --strict "$verified_app"
           codesign --verify --strict "$verified_widget"
+          codesign -d --entitlements :- "$verified_app" \
+            > "$RUNNER_TEMP/verified-app-entitlements.plist" 2>/dev/null
+          codesign -d --entitlements :- "$verified_widget" \
+            > "$RUNNER_TEMP/verified-widget-entitlements.plist" 2>/dev/null
+          python3 - "$RUNNER_TEMP/verified-app-entitlements.plist" \
+            "$RUNNER_TEMP/verified-widget-entitlements.plist" "$WIDGET_BUNDLE_ID" <<'PY'
+          import plistlib
+          import sys
+
+          app_path, widget_path, expected_widget_container = sys.argv[1:]
+          container_entitlement = "com.apple.private.security.container-required"
+
+          with open(app_path, "rb") as source:
+              app_entitlements = plistlib.load(source)
+          with open(widget_path, "rb") as source:
+              widget_entitlements = plistlib.load(source)
+
+          if container_entitlement in app_entitlements:
+              raise SystemExit(
+                  f"Extracted IPA main app unexpectedly contains {container_entitlement}."
+              )
+          if widget_entitlements.get(container_entitlement) != expected_widget_container:
+              raise SystemExit(
+                  "Extracted IPA widget container entitlement is missing or incorrect."
+              )
+          PY
           if find "$verified_app" -type f -name '*.mobileprovision' -print -quit | grep -q .; then
             echo "The extracted IPA contains a provisioning profile." >&2
             exit 1
@@ -645,5 +694,7 @@ jobs:
             "$RUNNER_TEMP/hermes-bytecode.txt" \
             "$RUNNER_TEMP/app-entitlements.plist" \
             "$RUNNER_TEMP/widget-entitlements.plist" \
+            "$RUNNER_TEMP/verified-app-entitlements.plist" \
+            "$RUNNER_TEMP/verified-widget-entitlements.plist" \
             "$RUNNER_TEMP/main-trollstore-entitlements.plist" \
             "$RUNNER_TEMP/widget-trollstore-entitlements.plist"

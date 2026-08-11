@@ -1,6 +1,16 @@
 "use client";
 
-import { ChevronLeft, Download, FileImage, ShieldCheck, Upload } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronLeft,
+  Copy,
+  Download,
+  FileImage,
+  Link2,
+  ShieldCheck,
+  Smartphone,
+  Upload,
+} from "lucide-react";
 import { type ComponentPropsWithoutRef, type FormEvent, useState } from "react";
 import { customerRequestHeaders } from "@/app/customers/request";
 
@@ -23,6 +33,51 @@ export function DataSettingsClient() {
   const [restoring, setRestoring] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [pairing, setPairing] = useState<{
+    deepLink: string;
+    expiresAt: string;
+  } | null>(null);
+  const [pairingBusy, setPairingBusy] = useState(false);
+  const [pairingMessage, setPairingMessage] = useState<string | null>(null);
+
+  async function generatePairing() {
+    if (pairingBusy) return;
+    setPairingBusy(true);
+    setPairingMessage(null);
+    try {
+      const response = await fetch("/api/device-pairings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceName: "iPhone" }),
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        deepLink?: string;
+        expiresAt?: string;
+        error?: { message?: string };
+      } | null;
+      if (!response.ok || !payload?.deepLink || !payload.expiresAt) {
+        throw new Error(payload?.error?.message || "生成配对链接失败");
+      }
+      setPairing({ deepLink: payload.deepLink, expiresAt: payload.expiresAt });
+      setPairingMessage("配对链接已生成，请在 5 分钟内用这台 iPhone 打开。");
+    } catch (error) {
+      setPairing(null);
+      setPairingMessage(error instanceof Error ? error.message : "生成配对链接失败，请稍后重试。");
+    } finally {
+      setPairingBusy(false);
+    }
+  }
+
+  async function copyPairingLink() {
+    if (!pairing) return;
+    try {
+      await navigator.clipboard.writeText(pairing.deepLink);
+      setPairingMessage("配对链接已复制。它相当于一次性登录凭证，请不要发给他人。");
+    } catch {
+      setPairingMessage("无法自动复制，请在 iPhone 上直接点“打开工作台 App”。");
+    }
+  }
 
   async function exportPlainBackup() {
     if (exporting) return;
@@ -104,6 +159,66 @@ export function DataSettingsClient() {
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#667085]">
           一次导出当前账号的全部客户资料。按你的个人使用要求，下载文件为普通 JSON，不再加密。
         </p>
+
+        <section className="mt-6 overflow-hidden rounded-2xl border border-[#d8e3fb] bg-white shadow-sm">
+          <div className="grid gap-5 p-5 sm:grid-cols-[1fr_auto] sm:items-center sm:p-6">
+            <div className="flex items-start gap-4">
+              <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#edf3ff] text-[#2f6bff]">
+                <Smartphone size={22} />
+              </span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#5d7dc9]">iPhone App</p>
+                <h2 className="mt-1 text-xl font-semibold">绑定 iPhone App</h2>
+                <p className="mt-2 max-w-xl text-sm leading-6 text-[#667085]">
+                  生成一个 5 分钟内有效、只能使用一次的配对链接。绑定后 App 会读取当前账号的客户与待办资料。
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void generatePairing()}
+              disabled={pairingBusy}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[#172033] px-6 text-sm font-semibold text-white transition hover:bg-[#26324a] disabled:opacity-55"
+            >
+              <Link2 size={18} />{pairingBusy ? "正在生成…" : pairing ? "重新生成" : "生成配对链接"}
+            </button>
+          </div>
+
+          {pairing && (
+            <div className="border-t border-[#e7ecf5] bg-[#f7f9fd] p-5 sm:p-6">
+              <div className="flex items-start gap-3 rounded-xl border border-[#d9e4fb] bg-white p-4">
+                <CheckCircle2 className="mt-0.5 shrink-0 text-[#27805f]" size={20} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[#344054]">一次性配对链接已就绪</p>
+                  <p className="mt-1 text-xs leading-5 text-[#667085]">
+                    有效期至 {new Date(pairing.expiresAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}。链接内容不会在页面中显示。
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <a
+                  href={pairing.deepLink}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#2f6bff] px-5 text-sm font-semibold text-white"
+                >
+                  <Smartphone size={17} />打开工作台 App
+                </a>
+                <button
+                  type="button"
+                  onClick={() => void copyPairingLink()}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#d5deed] bg-white px-5 text-sm font-semibold text-[#526071]"
+                >
+                  <Copy size={17} />复制到 iPhone 打开
+                </button>
+              </div>
+            </div>
+          )}
+
+          {pairingMessage && (
+            <p role="status" className="border-t border-[#e7ecf5] px-5 py-3 text-xs leading-5 text-[#667085] sm:px-6">
+              {pairingMessage}
+            </p>
+          )}
+        </section>
 
         <section className="mt-6 overflow-hidden rounded-2xl border border-[#cbd9fb] bg-white shadow-sm">
           <div className="grid gap-6 bg-gradient-to-br from-[#edf3ff] to-white p-5 sm:grid-cols-[1fr_auto] sm:items-center sm:p-6">

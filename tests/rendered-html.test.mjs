@@ -45,6 +45,14 @@ async function request(path = "/", init = {}) {
   );
 }
 
+test("task sync API exposes stable cursor pagination", async () => {
+  const source = await readFile(new URL("../app/api/tasks/route.ts", import.meta.url), "utf8");
+  assert.match(source, /url\.searchParams\.get\("pageSize"\)/);
+  assert.match(source, /AND \(\?2 IS NULL OR t\.id > \?2\)/);
+  assert.match(source, /ORDER BY t\.id ASC/);
+  assert.match(source, /nextCursor: hasMore/);
+});
+
 test("server-renders the finished sales workspace", async () => {
   const response = await request();
   assert.equal(response.status, 200);

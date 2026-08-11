@@ -1,5 +1,10 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import {
+  authenticateWorkspaceDevice,
+  workspaceDeviceToken,
+} from "@/lib/workspace/device-auth";
+import { getWorkspaceDatabase } from "@/lib/workspace/server";
 
 export type ChatGPTUser = {
   userId: string;
@@ -22,7 +27,28 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const requestHeaders = await headers();
   const userId = requestHeaders.get(USER_ID_HEADER);
   const email = requestHeaders.get(USER_EMAIL_HEADER);
-  if (!userId || !email) return null;
+  if (!userId || !email) {
+    const token = workspaceDeviceToken(requestHeaders);
+    if (!token) return null;
+    try {
+      const ownerId = await authenticateWorkspaceDevice(
+        await getWorkspaceDatabase(),
+        token,
+      );
+      if (!ownerId) return null;
+      const ownerEmail = ownerId.startsWith("email:")
+        ? ownerId.slice("email:".length)
+        : "已绑定 iPhone";
+      return {
+        userId: ownerId,
+        displayName: "已绑定 iPhone",
+        email: ownerEmail,
+        fullName: null,
+      };
+    } catch {
+      return null;
+    }
+  }
 
   const encodedFullName = requestHeaders.get(USER_FULL_NAME_HEADER);
   const fullName =

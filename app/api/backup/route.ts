@@ -80,7 +80,7 @@ export async function GET(request: Request): Promise<Response> {
   if (!(await isWorkspaceCloudConfigured())) {
     return apiError(409, "CLOUD_SYNC_REQUIRED", "备份需要启用云端同步");
   }
-  const userId = workspaceUserId(request);
+  const userId = await workspaceUserId(request);
   if (!userId) return apiError(401, "AUTH_REQUIRED", "请先登录后再导出备份");
   const { db, files } = await getWorkspaceBindings();
   const rows = await db
@@ -165,7 +165,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!(await isWorkspaceCloudConfigured())) {
     return apiError(409, "CLOUD_SYNC_REQUIRED", "恢复需要启用云端同步");
   }
-  const userId = workspaceUserId(request);
+  const userId = await workspaceUserId(request);
   if (!userId) return apiError(401, "AUTH_REQUIRED", "请先登录后再恢复备份");
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(declared) && declared > MAX_BACKUP_BYTES) {

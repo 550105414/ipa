@@ -16,7 +16,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   if (!(await isWorkspaceCloudConfigured())) {
     return apiError(409, "CLOUD_SYNC_REQUIRED", "恢复客户需要启用云端同步");
   }
-  const userId = workspaceUserId(request);
+  const userId = await workspaceUserId(request);
   const { id: rawId } = await context.params;
   const id = decodeURIComponent(rawId).trim();
   if (!userId || !isUuid(id)) return apiError(404, "CUSTOMER_NOT_FOUND", "未找到客户");

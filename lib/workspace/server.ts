@@ -1,5 +1,9 @@
 import { localVaultAuthenticatedUserId } from "@/lib/security/local-vault-server";
 import type { CustomerMachineMode, CustomerMachineType } from "@/lib/customers/machine";
+import {
+  authenticateWorkspaceDevice,
+  workspaceDeviceToken,
+} from "@/lib/workspace/device-auth";
 
 export const CUSTOMER_CATEGORIES = ["直营", "代理", "汇来米", "收银通"] as const;
 export type WorkspaceCustomerCategory = (typeof CUSTOMER_CATEGORIES)[number];
@@ -57,14 +61,31 @@ export async function getWorkspaceBindings(): Promise<{
   if (!bindings.DB || !bindings.FILES) {
     throw new WorkspaceCloudConfigurationError();
   }
+  await ensureWorkspaceDatabaseSchema(bindings.DB);
+  return { db: bindings.DB, files: bindings.FILES };
+}
+
+export async function getWorkspaceDatabase(): Promise<D1Database> {
+  let database: D1Database | undefined;
+  try {
+    const runtime = await import("cloudflare:workers");
+    database = (runtime.env as unknown as WorkspaceBindings).DB;
+  } catch {
+    throw new WorkspaceCloudConfigurationError();
+  }
+  if (!database) throw new WorkspaceCloudConfigurationError();
+  await ensureWorkspaceDatabaseSchema(database);
+  return database;
+}
+
+async function ensureWorkspaceDatabaseSchema(db: D1Database): Promise<void> {
   if (!schemaReady) {
-    schemaReady = ensureWorkspaceSchema(bindings.DB).catch((error) => {
+    schemaReady = ensureWorkspaceSchema(db).catch((error) => {
       schemaReady = null;
       throw error;
     });
   }
   await schemaReady;
-  return { db: bindings.DB, files: bindings.FILES };
 }
 
 async function ensureWorkspaceSchema(db: D1Database): Promise<void> {
@@ -119,6 +140,31 @@ async function ensureWorkspaceSchema(db: D1Database): Promise<void> {
       )`,
     ),
     db.prepare(
+      `CREATE TABLE IF NOT EXISTS device_pairings (
+        id TEXT PRIMARY KEY NOT NULL,
+        owner_id TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        device_name TEXT,
+        expires_at TEXT NOT NULL,
+        redeemed_at TEXT,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL
+      )`,
+    ),
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS device_tokens (
+        id TEXT PRIMARY KEY NOT NULL,
+        owner_id TEXT NOT NULL,
+        pairing_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        device_name TEXT,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        revoked_at TEXT,
+        FOREIGN KEY (pairing_id) REFERENCES device_pairings(id)
+      )`,
+    ),
+    db.prepare(
       "CREATE INDEX IF NOT EXISTS idx_customers_owner_created ON customers (owner_id, created_at)",
     ),
     db.prepare(
@@ -148,6 +194,18 @@ async function ensureWorkspaceSchema(db: D1Database): Promise<void> {
     db.prepare(
       "CREATE INDEX IF NOT EXISTS idx_tasks_owner_status_due ON tasks (owner_id, status, due_at)",
     ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_device_pairings_owner_created ON device_pairings (owner_id, created_at)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_device_pairings_expires ON device_pairings (expires_at)",
+    ),
+    db.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_device_tokens_pairing_unique ON device_tokens (pairing_id)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_device_tokens_owner_revoked ON device_tokens (owner_id, revoked_at)",
+    ),
   ]);
   await ensureCustomerColumns(db);
   await db.prepare("PRAGMA optimize").run();
@@ -176,9 +234,17 @@ export async function isWorkspaceCloudConfigured(): Promise<boolean> {
   }
 }
 
-export function workspaceUserId(request: Request): string | null {
+export async function workspaceUserId(request: Request): Promise<string | null> {
   const value = localVaultAuthenticatedUserId(request)?.trim() ?? "";
-  return value.length > 0 && value.length <= 256 ? value : null;
+  if (value.length > 0 && value.length <= 256) return value;
+
+  const token = workspaceDeviceToken(request.headers);
+  if (!token) return null;
+  try {
+    return authenticateWorkspaceDevice(await getWorkspaceDatabase(), token);
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeCustomerCategory(
@@ -222,7 +288,10 @@ export function privateJson<T>(body: T, status = 200, headers?: HeadersInit): Re
   responseHeaders.set("Cache-Control", "private, no-store");
   responseHeaders.set("Pragma", "no-cache");
   responseHeaders.set("Referrer-Policy", "no-referrer");
-  responseHeaders.set("Vary", "Authorization, Cookie");
+  responseHeaders.set(
+    "Vary",
+    "Authorization, Cookie, X-Workspace-Device-Token, OAI-Sites-Authorization",
+  );
   return Response.json(body, { status, headers: responseHeaders });
 }
 
@@ -244,7 +313,7 @@ export async function findOwnedCustomer(
   request: Request,
   id: string,
 ): Promise<{ userId: string; row: WorkspaceCustomerRow } | null> {
-  const userId = workspaceUserId(request);
+  const userId = await workspaceUserId(request);
   if (!userId || !isUuid(id)) return null;
   const { db } = await getWorkspaceBindings();
   const row = await db

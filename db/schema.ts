@@ -87,3 +87,47 @@ export const tasks = sqliteTable(
     ),
   ],
 );
+
+export const devicePairings = sqliteTable(
+  "device_pairings",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    codeHash: text("code_hash").notNull(),
+    deviceName: text("device_name"),
+    expiresAt: text("expires_at").notNull(),
+    redeemedAt: text("redeemed_at"),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_device_pairings_owner_created").on(
+      table.ownerId,
+      table.createdAt,
+    ),
+    index("idx_device_pairings_expires").on(table.expiresAt),
+  ],
+);
+
+export const deviceTokens = sqliteTable(
+  "device_tokens",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    pairingId: text("pairing_id")
+      .notNull()
+      .references(() => devicePairings.id),
+    tokenHash: text("token_hash").notNull(),
+    deviceName: text("device_name"),
+    createdAt: text("created_at").notNull(),
+    lastUsedAt: text("last_used_at"),
+    revokedAt: text("revoked_at"),
+  },
+  (table) => [
+    uniqueIndex("idx_device_tokens_pairing_unique").on(table.pairingId),
+    index("idx_device_tokens_owner_revoked").on(
+      table.ownerId,
+      table.revokedAt,
+    ),
+  ],
+);

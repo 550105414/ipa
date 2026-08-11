@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { NewTodoInput, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
 
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 4;
 
 type CategoryRow = {
   id: string;
@@ -29,6 +29,52 @@ type TodoRow = {
   created_at: string;
   updated_at: string;
 };
+
+type LegacyDemoTaskRow = {
+  id: number;
+  title: string;
+  notes: string | null;
+  label: string | null;
+  category_id: string;
+  is_starred: number;
+  due_offset_days: number | null;
+  completed_offset_days: number | null;
+  created_at: string;
+  updated_at: string;
+  remote_id: string | null;
+  sync_state: string;
+};
+
+type LegacyDemoTaskSignature = Omit<
+  LegacyDemoTaskRow,
+  'created_at' | 'updated_at' | 'remote_id' | 'sync_state'
+>;
+
+const LEGACY_DEMO_TASKS: LegacyDemoTaskSignature[] = [
+  { id: 1, title: '订购桶装水', notes: null, label: '生活', category_id: 'inbox', is_starred: 1, due_offset_days: 0, completed_offset_days: null },
+  { id: 2, title: '洗衣服', notes: null, label: null, category_id: 'inbox', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 3, title: '整理衣橱的衣服', notes: null, label: null, category_id: 'inbox', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 4, title: '学习如何写文章', notes: '可以参考优秀作品', label: null, category_id: 'media', is_starred: 1, due_offset_days: -1, completed_offset_days: null },
+  { id: 5, title: '八月份选题计划', notes: null, label: null, category_id: 'media', is_starred: 1, due_offset_days: 14, completed_offset_days: null },
+  { id: 6, title: '学习剪辑视频', notes: null, label: null, category_id: 'media', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 7, title: '发一篇图文笔记', notes: null, label: '写作', category_id: 'media', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 8, title: 'ASO 学习', notes: null, label: '运营', category_id: 'work', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 9, title: '设计新 APP 原型', notes: null, label: null, category_id: 'work', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 10, title: '飘', notes: null, label: null, category_id: 'reading', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 11, title: '活着', notes: null, label: null, category_id: 'reading', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 12, title: '傲慢与偏见', notes: null, label: null, category_id: 'reading', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 13, title: '教父', notes: '很经典的电影', label: null, category_id: 'movies', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 14, title: '无间道', notes: null, label: null, category_id: 'movies', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 15, title: '让子弹飞', notes: null, label: null, category_id: 'movies', is_starred: 1, due_offset_days: null, completed_offset_days: null },
+  { id: 16, title: '买花生油', notes: null, label: '生活', category_id: 'shopping', is_starred: 1, due_offset_days: 1, completed_offset_days: null },
+  { id: 17, title: '星际穿越', notes: null, label: null, category_id: 'movies', is_starred: 1, due_offset_days: null, completed_offset_days: -1 },
+  { id: 18, title: '收拾杂物箱', notes: null, label: null, category_id: 'inbox', is_starred: 1, due_offset_days: null, completed_offset_days: -1 },
+  { id: 19, title: 'War and Peace', notes: null, label: null, category_id: 'reading', is_starred: 1, due_offset_days: null, completed_offset_days: -2 },
+  { id: 20, title: 'AI 视频学习', notes: null, label: null, category_id: 'work', is_starred: 1, due_offset_days: null, completed_offset_days: -3 },
+  { id: 21, title: 'The Great Gatsby', notes: null, label: null, category_id: 'reading', is_starred: 1, due_offset_days: null, completed_offset_days: -30 },
+  { id: 22, title: 'Wuthering Heights', notes: null, label: null, category_id: 'reading', is_starred: 0, due_offset_days: null, completed_offset_days: -60 },
+  { id: 23, title: '买一把好用的拖把', notes: '选择可以自动沥水的拖把', label: null, category_id: 'inbox', is_starred: 1, due_offset_days: -70, completed_offset_days: -69 },
+];
 
 export async function migrateDatabase(database: SQLiteDatabase) {
   await database.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
@@ -87,7 +133,7 @@ export async function migrateDatabase(database: SQLiteDatabase) {
 
       INSERT INTO todo_items (title, notes, label, category_id, is_starred, due_at)
       SELECT '订购桶装水', NULL, '生活', 'inbox', 1, date('now', 'localtime')
-      WHERE NOT EXISTS (SELECT 1 FROM todo_items);
+      WHERE 0;
       INSERT INTO todo_items (title, notes, category_id, is_starred)
       SELECT '洗衣服', NULL, 'inbox', 1 WHERE (SELECT COUNT(*) FROM todo_items) = 1;
       INSERT INTO todo_items (title, notes, category_id, is_starred)
@@ -147,7 +193,87 @@ export async function migrateDatabase(database: SQLiteDatabase) {
     `);
   }
 
+  if (currentVersion < 3) {
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(todo_items)');
+    const columnNames = new Set(columns.map((column) => column.name));
+    if (!columnNames.has('remote_id')) {
+      await database.execAsync('ALTER TABLE todo_items ADD COLUMN remote_id TEXT;');
+    }
+    if (!columnNames.has('sync_state')) {
+      await database.execAsync(
+        "ALTER TABLE todo_items ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'pending';",
+      );
+    }
+    if (!columnNames.has('last_synced_at')) {
+      await database.execAsync('ALTER TABLE todo_items ADD COLUMN last_synced_at TEXT;');
+    }
+    await database.execAsync(`
+      CREATE UNIQUE INDEX IF NOT EXISTS todo_items_remote_id_index
+      ON todo_items(remote_id)
+      WHERE remote_id IS NOT NULL;
+    `);
+  }
+
+  if (currentVersion < 4) {
+    await removeExactLegacyDemoTasks(database);
+  }
+
   await database.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
+}
+
+async function removeExactLegacyDemoTasks(database: SQLiteDatabase): Promise<void> {
+  const rows = await database.getAllAsync<LegacyDemoTaskRow>(`
+    SELECT
+      id,
+      title,
+      notes,
+      label,
+      category_id,
+      is_starred,
+      CAST(
+        ROUND(julianday(due_at) - julianday(date(created_at, 'localtime')))
+        AS INTEGER
+      ) AS due_offset_days,
+      CAST(
+        ROUND(julianday(completed_at) - julianday(created_at))
+        AS INTEGER
+      ) AS completed_offset_days,
+      created_at,
+      updated_at,
+      remote_id,
+      sync_state
+    FROM todo_items
+    WHERE id BETWEEN 1 AND 23
+    ORDER BY id ASC
+  `);
+
+  if (rows.length !== LEGACY_DEMO_TASKS.length) return;
+  const isExactUntouchedSeed = rows.every((row, index) => {
+    const expected = LEGACY_DEMO_TASKS[index];
+    return (
+      expected !== undefined &&
+      row.id === expected.id &&
+      row.title === expected.title &&
+      row.notes === expected.notes &&
+      row.label === expected.label &&
+      row.category_id === expected.category_id &&
+      row.is_starred === expected.is_starred &&
+      row.due_offset_days === expected.due_offset_days &&
+      row.completed_offset_days === expected.completed_offset_days &&
+      row.created_at === row.updated_at &&
+      row.remote_id === null &&
+      row.sync_state === 'pending'
+    );
+  });
+  if (!isExactUntouchedSeed) return;
+
+  await database.runAsync(`
+    DELETE FROM todo_items
+    WHERE id BETWEEN 1 AND 23
+      AND updated_at = created_at
+      AND remote_id IS NULL
+      AND sync_state = 'pending'
+  `);
 }
 
 export async function getCategories(database: SQLiteDatabase): Promise<TodoCategory[]> {
@@ -214,19 +340,22 @@ export async function getTasks(database: SQLiteDatabase): Promise<TodoTask[]> {
 }
 
 export async function insertTask(database: SQLiteDatabase, input: NewTodoInput) {
+  const updatedAt = new Date().toISOString();
   return database.runAsync(
     `INSERT INTO todo_items
       (title, notes, category_id, is_starred, due_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+     VALUES (?, ?, ?, ?, ?, ?)`,
     input.title.trim(),
     input.notes?.trim() || null,
     input.categoryId,
     input.isStarred ? 1 : 0,
     input.dueAt,
+    updatedAt,
   );
 }
 
 export async function updateTask(database: SQLiteDatabase, input: UpdateTodoInput) {
+  const updatedAt = new Date().toISOString();
   await database.runAsync(
     `UPDATE todo_items
      SET title = ?,
@@ -234,36 +363,43 @@ export async function updateTask(database: SQLiteDatabase, input: UpdateTodoInpu
          category_id = ?,
          is_starred = ?,
          due_at = ?,
-         updated_at = CURRENT_TIMESTAMP
+         sync_state = 'pending',
+         updated_at = ?
      WHERE id = ?`,
     input.title.trim(),
     input.notes?.trim() || null,
     input.categoryId,
     input.isStarred ? 1 : 0,
     input.dueAt,
+    updatedAt,
     input.id,
   );
 }
 
 export async function toggleTaskStar(database: SQLiteDatabase, id: number) {
+  const updatedAt = new Date().toISOString();
   await database.runAsync(
     `UPDATE todo_items
      SET is_starred = CASE is_starred WHEN 1 THEN 0 ELSE 1 END,
-         updated_at = CURRENT_TIMESTAMP
+         updated_at = ?
      WHERE id = ?`,
+    updatedAt,
     id,
   );
 }
 
 export async function toggleTaskCompletion(database: SQLiteDatabase, id: number) {
+  const updatedAt = new Date().toISOString();
   await database.runAsync(
     `UPDATE todo_items
      SET completed_at = CASE
        WHEN completed_at IS NULL THEN CURRENT_TIMESTAMP
        ELSE NULL
      END,
-     updated_at = CURRENT_TIMESTAMP
+     sync_state = 'pending',
+     updated_at = ?
      WHERE id = ?`,
+    updatedAt,
     id,
   );
 }

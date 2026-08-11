@@ -163,7 +163,7 @@ async function handleWorkspaceSearch(
   request: Request,
   params: SearchParams,
 ): Promise<Response> {
-  const userId = workspaceUserId(request);
+  const userId = await workspaceUserId(request);
   if (!userId) return errorResponse(401, "AUTH_REQUIRED", "请先登录后再搜索");
   if (params.scope === "all" && params.query === "") {
     return privateJson<SearchResponse>({ items: [], nextCursor: null, total: 0 });

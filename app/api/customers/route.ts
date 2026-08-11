@@ -294,7 +294,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 async function createWorkspaceCustomer(request: Request): Promise<Response> {
-  const userId = workspaceUserId(request);
+  const userId = await workspaceUserId(request);
   if (!userId) return workspaceApiError(401, "AUTH_REQUIRED", "请先登录后再录入客户");
 
   let form: FormData;

@@ -25,7 +25,7 @@ export async function GET(request: Request): Promise<Response> {
   if (!(await isWorkspaceCloudConfigured())) {
     return apiError(409, "CLOUD_SYNC_REQUIRED", "回收站需要启用云端同步");
   }
-  const userId = workspaceUserId(request);
+  const userId = await workspaceUserId(request);
   if (!userId) return apiError(401, "AUTH_REQUIRED", "请先登录后再查看回收站");
   const { db, files } = await getWorkspaceBindings();
   await purgeExpired(db, files, userId);

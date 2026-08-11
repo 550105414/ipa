@@ -1,5 +1,14 @@
-import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/bottom-navigation';
@@ -7,12 +16,15 @@ import { CategoryCard } from '@/components/category-card';
 import { FloatingAddButton } from '@/components/floating-add-button';
 import { ScreenState } from '@/components/screen-state';
 import { SymbolIcon } from '@/components/symbol-icon';
+import { loadWorkspaceSession } from '@/lib/workspace-api';
 import { useTodos } from '@/providers/todo-provider';
 import { colors, layout } from '@/theme/colors';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const [workspaceConnected, setWorkspaceConnected] = useState<boolean | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const { width } = useWindowDimensions();
   const {
     categories,
@@ -23,6 +35,32 @@ export default function HomeScreen() {
     toggleCompleted,
     toggleStarred,
   } = useTodos();
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refresh();
+      setWorkspaceConnected(Boolean(await loadWorkspaceSession()));
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      void loadWorkspaceSession().then((session) => {
+        if (active) setWorkspaceConnected(Boolean(session));
+      });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
+
+  const openWorkspace = (path: '/customers' | '/customer/new' | '/trash' | '/export-data') => {
+    router.push((workspaceConnected ? path : '/pair') as never);
+  };
 
   const availableWidth = Math.min(width, 520) - layout.horizontalPadding * 2;
   const columnGap = 12;
@@ -57,6 +95,9 @@ export default function HomeScreen() {
     <View style={styles.screen}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />
+        }
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scrollContent,
@@ -87,7 +128,7 @@ export default function HomeScreen() {
             <Pressable
               accessibilityLabel="打开客户资料"
               accessibilityRole="button"
-              onPress={() => router.push({ pathname: '/workspace', params: { path: '/customers' } } as never)}
+              onPress={() => openWorkspace('/customers')}
               style={({ pressed }) => [styles.settingsButton, { opacity: pressed ? 0.55 : 1 }]}>
               <SymbolIcon name="person.crop.rectangle.stack" color={colors.label} size={22} />
             </Pressable>
@@ -109,9 +150,11 @@ export default function HomeScreen() {
                 <Text selectable style={styles.workspaceSubtitle}>手机与电脑端云端同步</Text>
               </View>
             </View>
-            <View style={styles.syncPill}>
-              <View style={styles.syncDot} />
-              <Text selectable style={styles.syncText}>已同步</Text>
+            <View style={[styles.syncPill, !workspaceConnected && styles.syncPillPending]}>
+              <View style={[styles.syncDot, !workspaceConnected && styles.syncDotPending]} />
+              <Text selectable style={[styles.syncText, !workspaceConnected && styles.syncTextPending]}>
+                {workspaceConnected === null ? '检查中' : workspaceConnected ? '已连接' : '待绑定'}
+              </Text>
             </View>
           </View>
 
@@ -119,22 +162,22 @@ export default function HomeScreen() {
             <CustomerAction
               icon="person.2"
               label="客户列表"
-              onPress={() => router.push({ pathname: '/workspace', params: { path: '/customers' } } as never)}
+              onPress={() => openWorkspace('/customers')}
             />
             <CustomerAction
               icon="person.badge.plus"
               label="新增客户"
-              onPress={() => router.push({ pathname: '/workspace', params: { path: '/customers/new' } } as never)}
+              onPress={() => openWorkspace('/customer/new')}
             />
             <CustomerAction
               icon="archivebox"
               label="回收站"
-              onPress={() => router.push({ pathname: '/workspace', params: { path: '/customers/trash' } } as never)}
+              onPress={() => openWorkspace('/trash')}
             />
             <CustomerAction
               icon="square.and.arrow.down"
               label="导出资料"
-              onPress={() => router.push({ pathname: '/workspace', params: { path: '/settings/data' } } as never)}
+              onPress={() => openWorkspace('/export-data')}
             />
           </View>
         </View>
@@ -307,6 +350,15 @@ const styles = StyleSheet.create({
     color: '#33845D',
     fontSize: 11,
     fontWeight: '700',
+  },
+  syncPillPending: {
+    backgroundColor: '#FFF3DF',
+  },
+  syncDotPending: {
+    backgroundColor: '#D39032',
+  },
+  syncTextPending: {
+    color: '#A96816',
   },
   customerActions: {
     flexDirection: 'row',

@@ -12,6 +12,7 @@ const WIDGET_TARGET_NAME = 'ExpoWidgetsTarget';
 const WIDGET_DISPLAY_NAME = '工作台待办';
 const REQUIRED_DEPLOYMENT_TARGET = '16.1';
 const NATIVE_WIDGET_MARKER = '// CardWorkbench native widget fallback';
+const WIDGET_STORAGE_SYNC_MARKER = '// CardWorkbench synchronized App Group writes';
 
 const NATIVE_WIDGET_SWIFT = String.raw`${NATIVE_WIDGET_MARKER}
 
@@ -43,7 +44,12 @@ private struct TodoWidgetResilientTimelineProvider: TimelineProvider {
 
     provider.getTimeline(in: context) { timeline in
       if timeline.entries.isEmpty {
-        completion(Timeline(entries: [placeholderEntry], policy: .never))
+        completion(
+          Timeline(
+            entries: [placeholderEntry],
+            policy: .after(Date().addingTimeInterval(15 * 60))
+          )
+        )
       } else {
         completion(timeline)
       }
@@ -113,8 +119,9 @@ private struct CardWorkbenchWidgetTask: Identifiable {
 private struct CardWorkbenchWidgetModel {
   let total: Int
   let tasks: [CardWorkbenchWidgetTask]
+  let hasSnapshot: Bool
 
-  static let placeholder = CardWorkbenchWidgetModel(
+  static let preview = CardWorkbenchWidgetModel(
     total: 16,
     tasks: [
       CardWorkbenchWidgetTask(
@@ -145,12 +152,15 @@ private struct CardWorkbenchWidgetModel {
         starred: true,
         dueLabel: "8月13日"
       ),
-    ]
+    ],
+    hasSnapshot: true
   )
 
   init(props: [String: Any]?) {
     guard let props else {
-      self = .placeholder
+      self.total = 0
+      self.tasks = []
+      self.hasSnapshot = false
       return
     }
 
@@ -173,15 +183,19 @@ private struct CardWorkbenchWidgetModel {
     } else {
       self.total = parsedTasks.count
     }
+
+    self.hasSnapshot = true
   }
 
-  private init(total: Int, tasks: [CardWorkbenchWidgetTask]) {
+  private init(total: Int, tasks: [CardWorkbenchWidgetTask], hasSnapshot: Bool) {
     self.total = total
     self.tasks = tasks
+    self.hasSnapshot = hasSnapshot
   }
 }
 
 private struct CardWorkbenchTodoWidgetView: View {
+  @Environment(\.redactionReasons) private var redactionReasons
   @Environment(\.widgetFamily) private var widgetFamily
 
   private let model: CardWorkbenchWidgetModel
@@ -205,6 +219,18 @@ private struct CardWorkbenchTodoWidgetView: View {
     widgetFamily == .systemSmall ? 3 : 5
   }
 
+  private var displayedModel: CardWorkbenchWidgetModel {
+    if !model.hasSnapshot && redactionReasons.contains(.placeholder) {
+      return .preview
+    }
+
+    return model
+  }
+
+  private var needsSync: Bool {
+    !model.hasSnapshot && !redactionReasons.contains(.placeholder)
+  }
+
   private var content: some View {
     VStack(alignment: .leading, spacing: 7) {
       HStack(spacing: 7) {
@@ -219,7 +245,7 @@ private struct CardWorkbenchTodoWidgetView: View {
 
         Spacer(minLength: 4)
 
-        Text(String(model.total))
+        Text(String(displayedModel.total))
           .font(.system(size: 13, weight: .bold))
           .monospacedDigit()
           .foregroundStyle(Color(uiColor: .label))
@@ -228,12 +254,15 @@ private struct CardWorkbenchTodoWidgetView: View {
           .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
       }
 
-      if model.tasks.isEmpty {
+      if displayedModel.tasks.isEmpty {
         Spacer(minLength: 0)
 
         HStack {
           Spacer(minLength: 0)
-          Label("暂无待办", systemImage: "checkmark.circle")
+          Label(
+            needsSync ? "打开工作台同步" : "暂无待办",
+            systemImage: needsSync ? "arrow.triangle.2.circlepath" : "checkmark.circle"
+          )
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(Color(uiColor: .secondaryLabel))
           Spacer(minLength: 0)
@@ -241,7 +270,7 @@ private struct CardWorkbenchTodoWidgetView: View {
 
         Spacer(minLength: 0)
       } else {
-        ForEach(Array(model.tasks.prefix(maximumTaskCount))) { task in
+        ForEach(Array(displayedModel.tasks.prefix(maximumTaskCount))) { task in
           HStack(spacing: 7) {
             Image(systemName: "circle")
               .font(.system(size: 14, weight: .medium))
@@ -378,13 +407,54 @@ function withNativeTodoWidget(config) {
   ]);
 }
 
+function patchWidgetStorage(source) {
+  if (source.includes(WIDGET_STORAGE_SYNC_MARKER)) {
+    return source;
+  }
+
+  const write = '    defaults.set(value, forKey: key)';
+  const writeCount = source.split(write).length - 1;
+  if (writeCount !== 4) {
+    throw new Error(
+      `Expected four Expo WidgetsStorage writes, found ${writeCount}.`,
+    );
+  }
+
+  return `${WIDGET_STORAGE_SYNC_MARKER}\n${source.replaceAll(
+    write,
+    `${write}\n    // Persist before WidgetCenter reloads the extension process on iOS 16.\n    _ = defaults.synchronize()`,
+  )}`;
+}
+
+function withSynchronizedWidgetStorage(config) {
+  return withDangerousMod(config, [
+    'ios',
+    async (modConfig) => {
+      const storagePath = path.join(
+        modConfig.modRequest.projectRoot,
+        'node_modules',
+        'expo-widgets',
+        'ios',
+        'WidgetsStorage.swift',
+      );
+      if (!fs.existsSync(storagePath)) {
+        throw new Error(`Expo WidgetsStorage source was not found: ${storagePath}`);
+      }
+      const source = fs.readFileSync(storagePath, 'utf8');
+      fs.writeFileSync(storagePath, patchWidgetStorage(source), 'utf8');
+      return modConfig;
+    },
+  ]);
+}
+
 /**
  * expo-widgets 55 creates its extension target with iOS 16.2 and an
  * unoptimized debug-dylib Release layout. Keep the extension compatible with
  * iOS 16.1 and emit a normal optimized WidgetKit executable for TrollStore.
  */
 module.exports = function withWidgetDeploymentTarget(config) {
-  const withNativeRenderer = withNativeTodoWidget(config);
+  const withSynchronizedStorage = withSynchronizedWidgetStorage(config);
+  const withNativeRenderer = withNativeTodoWidget(withSynchronizedStorage);
   const withoutUnusedPushEntitlement = withEntitlementsPlist(
     withNativeRenderer,
     (modConfig) => {

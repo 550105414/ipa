@@ -18,6 +18,8 @@ import type {
 } from '@/widgets/widget-types';
 
 const DEFAULT_ACCENT = '#3B78B9';
+const DEFERRED_RELOAD_DELAY_MS = 450;
+let deferredReload: ReturnType<typeof setTimeout> | null = null;
 
 function TaskRow({ task }: { task: TodoWidgetTask }) {
   'widget';
@@ -139,5 +141,15 @@ export function syncTodoWidget(tasks: WidgetSyncTask[]): void {
     })),
     updatedAt: new Date().toISOString(),
   });
+  // updateSnapshot writes through the shared App Group defaults and asks
+  // WidgetKit to reload immediately.  On physical devices (especially iOS 16)
+  // that first reload can race the cross-process defaults flush, leaving the
+  // previous snapshot visible.  A short second reload makes the hand-off
+  // deterministic without changing the snapshot or scheduling background work.
   TodoWidget.reload();
+  if (deferredReload) clearTimeout(deferredReload);
+  deferredReload = setTimeout(() => {
+    deferredReload = null;
+    TodoWidget.reload();
+  }, DEFERRED_RELOAD_DELAY_MS);
 }

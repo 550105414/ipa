@@ -53,8 +53,13 @@ export async function GET(request: Request): Promise<Response> {
     ]);
   }
 
-  return Response.json(
-    { removed: Boolean(customer) },
-    { headers: { "Cache-Control": "private, no-store" } },
+  return new Response(
+    `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>清理完成</title><body><main><h1>${customer ? "验收资料已清理" : "没有待清理的验收资料"}</h1></main></body></html>`,
+    {
+      headers: {
+        "Cache-Control": "private, no-store",
+        "Content-Type": "text/html; charset=utf-8",
+      },
+    },
   );
 }

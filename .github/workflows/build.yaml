@@ -24,7 +24,9 @@ jobs:
       BUNDLE_ID: com.xiaoke.salesworkspace
       WIDGET_BUNDLE_ID: com.xiaoke.salesworkspace.TodoWidget
       APP_GROUP_ID: group.com.xiaoke.salesworkspace
-      SCHEME: CardWorkbench
+      # Expo prebuild derives the native iOS project/scheme from the current
+      # generated project name (`app`), not from this repository folder name.
+      SCHEME: app
       WIDGET_TARGET: ExpoWidgetsTarget
       APP_VERSION: 1.2.0
       APP_BUILD: "4"

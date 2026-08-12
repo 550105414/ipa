@@ -8,11 +8,21 @@ import { WorkspaceError, WorkspaceLoading } from '@/components/workspace-screen-
 import { SymbolIcon } from '@/components/symbol-icon';
 import { workspaceJson } from '@/lib/workspace-api';
 import { colors } from '@/theme/colors';
-import type { CustomerCategory, CustomerDetail, CustomerSensitive, MachineMode, MachineType } from '@/types/customer';
+import type {
+  CustomerCategory,
+  CustomerDetail,
+  CustomerSensitive,
+  CustomerStage,
+  MachineMode,
+  MachineStatus,
+  MachineType,
+} from '@/types/customer';
 
 const categories: CustomerCategory[] = ['直营', '代理', '汇来米', '收银通'];
 const machines: MachineType[] = ['音响', '扫码王', '收银机'];
 const modes: MachineMode[] = ['购买', '赠送'];
+const stages: CustomerStage[] = ['新客户', '沟通中', '待进件', '已进件', '已商户', '已流失'];
+const machineStatuses: MachineStatus[] = ['待安装', '已安装', '已回收'];
 
 export default function EditCustomerScreen() {
   const router = useRouter();
@@ -23,11 +33,17 @@ export default function EditCustomerScreen() {
   const [error, setError] = useState<unknown>(null);
   const [shopName, setShopName] = useState('');
   const [category, setCategory] = useState<CustomerCategory>('直营');
+  const [stage, setStage] = useState<CustomerStage>('新客户');
   const [followUp, setFollowUp] = useState('');
   const [machineType, setMachineType] = useState<MachineType | null>(null);
   const [machineMode, setMachineMode] = useState<MachineMode | null>(null);
   const [feeRate, setFeeRate] = useState('');
   const [depositAmount, setDepositAmount] = useState('');
+  const [machineSerial, setMachineSerial] = useState('');
+  const [machineStatus, setMachineStatus] = useState<MachineStatus | null>(null);
+  const [installedAt, setInstalledAt] = useState('');
+  const [monthlyVolume, setMonthlyVolume] = useState('');
+  const [profitShareRate, setProfitShareRate] = useState('');
   const [bankCard, setBankCard] = useState('');
   const [front, setFront] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [back, setBack] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -47,11 +63,17 @@ export default function EditCustomerScreen() {
       const customer = detail.customer;
       setShopName(customer.shopName ?? '');
       setCategory(customer.category ?? '直营');
+      setStage(customer.stage ?? '新客户');
       setFollowUp(toEditableDate(customer.nextFollowUpAt));
       setMachineType(customer.machineType ?? null);
       setMachineMode(customer.machineMode ?? null);
       setFeeRate(customer.feeRate == null ? '' : String(customer.feeRate));
       setDepositAmount(customer.depositAmount == null ? '' : String(customer.depositAmount));
+      setMachineSerial(customer.machineSerial ?? '');
+      setMachineStatus(customer.machineStatus ?? null);
+      setInstalledAt(toEditableDate(customer.installedAt));
+      setMonthlyVolume(customer.monthlyVolume == null ? '' : String(customer.monthlyVolume));
+      setProfitShareRate(customer.profitShareRate == null ? '' : String(customer.profitShareRate));
       setBankCard(sensitive.bankCardNumber ?? '');
     } catch (loadError) {
       setError(loadError);
@@ -98,6 +120,25 @@ export default function EditCustomerScreen() {
       Alert.alert('银行卡号应为 12～19 位数字');
       return;
     }
+    let installedAtIso: string | null = null;
+    if (installedAt.trim()) {
+      const date = new Date(installedAt.trim().replace(' ', 'T'));
+      if (Number.isNaN(date.getTime())) {
+        Alert.alert('安装时间格式不正确', '请按“2026-08-12 10:30”填写。');
+        return;
+      }
+      installedAtIso = date.toISOString();
+    }
+    const volume = monthlyVolume.trim() ? Number(monthlyVolume) : null;
+    const shareRate = profitShareRate.trim() ? Number(profitShareRate) : null;
+    if (volume !== null && (!Number.isFinite(volume) || volume < 0)) {
+      Alert.alert('月交易额应为不小于 0 的数字');
+      return;
+    }
+    if (shareRate !== null && (!Number.isFinite(shareRate) || shareRate < 0 || shareRate > 100)) {
+      Alert.alert('分润比例应为 0～100 之间的数字');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -106,11 +147,17 @@ export default function EditCustomerScreen() {
         body: JSON.stringify({
           shopName: shopName.trim() || null,
           category,
+          stage,
           nextFollowUpAt: followUpIso,
           machineType,
           machineMode: machineType ? machineMode : null,
           feeRate: machineType ? Number(feeRate) : null,
           depositAmount: machineType && depositAmount.trim() ? Number(depositAmount) : null,
+          machineSerial: machineSerial.trim() || null,
+          machineStatus,
+          installedAt: installedAtIso,
+          monthlyVolume: volume,
+          profitShareRate: shareRate,
         }),
       });
 
@@ -156,6 +203,7 @@ export default function EditCustomerScreen() {
       <Section title="客户信息">
         <Field label="店铺名字" value={shopName} onChangeText={setShopName} placeholder="选填" />
         <Choice label="客户分类" values={categories} selected={category} onSelect={setCategory} />
+        <Choice label="客户阶段" values={stages} selected={stage} onSelect={setStage} />
         <Field label="下次跟进时间" value={followUp} onChangeText={setFollowUp} placeholder="2026-08-12 10:30（选填）" />
       </Section>
 
@@ -171,6 +219,16 @@ export default function EditCustomerScreen() {
             <Choice label="模式" values={modes} selected={machineMode} onSelect={setMachineMode} />
             <Field label="费率（%）" value={feeRate} onChangeText={setFeeRate} keyboardType="decimal-pad" />
             <Field label="押金（元）" value={depositAmount} onChangeText={setDepositAmount} keyboardType="decimal-pad" />
+            <Field label="机器序列号" value={machineSerial} onChangeText={setMachineSerial} placeholder="选填" />
+            <Choice
+              label="机器状态"
+              values={machineStatuses}
+              selected={machineStatus}
+              onSelect={setMachineStatus}
+            />
+            <Field label="安装时间" value={installedAt} onChangeText={setInstalledAt} placeholder="2026-08-12 10:30（选填）" />
+            <Field label="月交易额（元）" value={monthlyVolume} onChangeText={setMonthlyVolume} keyboardType="decimal-pad" placeholder="用于估算收益" />
+            <Field label="分润比例（%）" value={profitShareRate} onChangeText={setProfitShareRate} keyboardType="decimal-pad" placeholder="例如 0.2" />
           </>
         ) : null}
       </Section>

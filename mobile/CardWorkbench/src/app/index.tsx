@@ -17,6 +17,7 @@ import { FloatingAddButton } from '@/components/floating-add-button';
 import { ScreenState } from '@/components/screen-state';
 import { SymbolIcon } from '@/components/symbol-icon';
 import { loadWorkspaceSession } from '@/lib/workspace-api';
+import { runDailyWorkspaceBackup } from '@/lib/auto-backup';
 import { useTodos } from '@/providers/todo-provider';
 import { colors, layout } from '@/theme/colors';
 
@@ -51,6 +52,7 @@ export default function HomeScreen() {
       let active = true;
       void loadWorkspaceSession().then((session) => {
         if (active) setWorkspaceConnected(Boolean(session));
+        if (session) void runDailyWorkspaceBackup().catch(() => undefined);
       });
       return () => {
         active = false;
@@ -58,7 +60,7 @@ export default function HomeScreen() {
     }, []),
   );
 
-  const openWorkspace = (path: '/customers' | '/customer/new' | '/trash' | '/export-data') => {
+  const openWorkspace = (path: '/today' | '/customers' | '/customer/new' | '/trash' | '/export-data') => {
     router.push((workspaceConnected ? path : '/pair') as never);
   };
 
@@ -159,6 +161,11 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.customerActions}>
+            <CustomerAction
+              icon="calendar.badge.clock"
+              label="今日工作"
+              onPress={() => openWorkspace('/today')}
+            />
             <CustomerAction
               icon="person.2"
               label="客户列表"

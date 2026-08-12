@@ -1,6 +1,6 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import { type PropsWithChildren, useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, Text, View } from 'react-native';
+import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   createFaceIdSession,
@@ -106,55 +106,64 @@ export function PrivacyGate({ children }: PropsWithChildren) {
     return () => subscription.remove();
   }, [restoreOrUnlock]);
 
-  if (!locked) return children;
-
   return (
-    <View
-      accessibilityViewIsModal
-      style={{
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 18,
-        padding: 32,
-        backgroundColor: colors.background,
-      }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View
-        style={{
-          width: 72,
-          height: 72,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: 24,
-          borderCurve: 'continuous',
-          backgroundColor: colors.blueTint,
-        }}>
-        <Text style={{ fontSize: 34 }} accessibilityLabel="已锁定">
-          🔒
-        </Text>
+        accessibilityElementsHidden={locked}
+        importantForAccessibility={locked ? 'no-hide-descendants' : 'auto'}
+        pointerEvents={locked ? 'none' : 'auto'}
+        style={{ flex: 1, opacity: locked ? 0 : 1 }}>
+        {children}
       </View>
-      <View style={{ alignItems: 'center', gap: 7 }}>
-        <Text selectable style={{ color: colors.label, fontSize: 22, fontWeight: '700' }}>
-          Face ID 已锁定
-        </Text>
-        <Text selectable style={{ color: colors.secondaryLabel, fontSize: 14, textAlign: 'center' }}>
-          {message}
-        </Text>
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => void unlock()}
-        style={({ pressed }) => ({
-          minWidth: 180,
-          minHeight: 48,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: 16,
-          borderCurve: 'continuous',
-          backgroundColor: pressed ? '#2866AB' : colors.blue,
-        })}>
-        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>使用 Face ID 解锁</Text>
-      </Pressable>
+      {locked ? (
+        <View
+          accessibilityViewIsModal
+          style={{
+            ...StyleSheet.absoluteFillObject,
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 18,
+            padding: 32,
+            backgroundColor: colors.background,
+          }}>
+          <View
+            style={{
+              width: 72,
+              height: 72,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 24,
+              borderCurve: 'continuous',
+              backgroundColor: colors.blueTint,
+            }}>
+            <Text style={{ fontSize: 34 }} accessibilityLabel="已锁定">
+              🔒
+            </Text>
+          </View>
+          <View style={{ alignItems: 'center', gap: 7 }}>
+            <Text selectable style={{ color: colors.label, fontSize: 22, fontWeight: '700' }}>
+              Face ID 已锁定
+            </Text>
+            <Text selectable style={{ color: colors.secondaryLabel, fontSize: 14, textAlign: 'center' }}>
+              {message}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void unlock()}
+            style={({ pressed }) => ({
+              minWidth: 180,
+              minHeight: 48,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 16,
+              borderCurve: 'continuous',
+              backgroundColor: pressed ? '#2866AB' : colors.blue,
+            })}>
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>使用 Face ID 解锁</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }

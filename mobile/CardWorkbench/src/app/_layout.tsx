@@ -16,6 +16,10 @@ export default function RootLayout() {
             <Stack.Screen name="plan" options={{ title: '计划' }} />
             <Stack.Screen name="completed" options={{ title: '已完成' }} />
             <Stack.Screen
+              name="today"
+              options={{ headerShown: true, title: '今日工作', headerShadowVisible: false }}
+            />
+            <Stack.Screen
               name="customers"
               options={{ headerShown: true, title: '客户', headerShadowVisible: false }}
             />

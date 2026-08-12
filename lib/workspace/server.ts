@@ -1,5 +1,6 @@
 import { localVaultAuthenticatedUserId } from "@/lib/security/local-vault-server";
 import type { CustomerMachineMode, CustomerMachineType } from "@/lib/customers/machine";
+import type { CustomerStage, MachineStatus } from "@/lib/customers/profile";
 import {
   authenticateWorkspaceDevice,
   workspaceDeviceToken,
@@ -15,10 +16,16 @@ export interface WorkspaceCustomerRow {
   phone: string;
   shop_name: string | null;
   category: string;
+  stage: CustomerStage;
   machine_type: CustomerMachineType | null;
   machine_mode: CustomerMachineMode | null;
   fee_rate: number | null;
   deposit_amount: number | null;
+  machine_serial: string | null;
+  machine_status: MachineStatus | null;
+  installed_at: string | null;
+  monthly_volume: number | null;
+  profit_share_rate: number | null;
   address: string | null;
   tags_json: string;
   id_card_front_key: string | null;
@@ -98,10 +105,16 @@ async function ensureWorkspaceSchema(db: D1Database): Promise<void> {
         phone TEXT NOT NULL,
         shop_name TEXT,
         category TEXT NOT NULL DEFAULT '直营',
+        stage TEXT NOT NULL DEFAULT '新客户',
         machine_type TEXT,
         machine_mode TEXT,
         fee_rate REAL,
         deposit_amount REAL,
+        machine_serial TEXT,
+        machine_status TEXT,
+        installed_at TEXT,
+        monthly_volume REAL,
+        profit_share_rate REAL,
         address TEXT,
         tags_json TEXT NOT NULL DEFAULT '[]',
         id_card_front_key TEXT,
@@ -208,6 +221,9 @@ async function ensureWorkspaceSchema(db: D1Database): Promise<void> {
     ),
   ]);
   await ensureCustomerColumns(db);
+  await db
+    .prepare("CREATE INDEX IF NOT EXISTS idx_customers_owner_stage ON customers (owner_id, stage)")
+    .run();
   await db.prepare("PRAGMA optimize").run();
 }
 
@@ -215,10 +231,16 @@ async function ensureCustomerColumns(db: D1Database): Promise<void> {
   const columns = await db.prepare("PRAGMA table_info(customers)").all<{ name: string }>();
   const names = new Set((columns.results ?? []).map((column) => column.name));
   const additions = [
+    ["stage", "ALTER TABLE customers ADD COLUMN stage TEXT NOT NULL DEFAULT '新客户'"],
     ["deposit_amount", "ALTER TABLE customers ADD COLUMN deposit_amount REAL"],
     ["address", "ALTER TABLE customers ADD COLUMN address TEXT"],
     ["tags_json", "ALTER TABLE customers ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"],
     ["business_license_key", "ALTER TABLE customers ADD COLUMN business_license_key TEXT"],
+    ["machine_serial", "ALTER TABLE customers ADD COLUMN machine_serial TEXT"],
+    ["machine_status", "ALTER TABLE customers ADD COLUMN machine_status TEXT"],
+    ["installed_at", "ALTER TABLE customers ADD COLUMN installed_at TEXT"],
+    ["monthly_volume", "ALTER TABLE customers ADD COLUMN monthly_volume REAL"],
+    ["profit_share_rate", "ALTER TABLE customers ADD COLUMN profit_share_rate REAL"],
   ] as const;
   for (const [name, statement] of additions) {
     if (!names.has(name)) await db.prepare(statement).run();
@@ -318,8 +340,9 @@ export async function findOwnedCustomer(
   const { db } = await getWorkspaceBindings();
   const row = await db
     .prepare(
-      `SELECT id, owner_id, name, phone, shop_name, category,
+      `SELECT id, owner_id, name, phone, shop_name, category, stage,
               machine_type, machine_mode, fee_rate, deposit_amount,
+              machine_serial, machine_status, installed_at, monthly_volume, profit_share_rate,
               address, tags_json,
               id_card_front_key, id_card_back_key, business_license_key,
               bank_card_ciphertext, bank_card_last4,

@@ -27,8 +27,12 @@ import {
   type CustomerMachineType,
 } from "@/lib/customers/machine";
 import {
+  isCustomerStage,
+  isMachineStatus,
   normalizeCustomerAddress,
   normalizeCustomerTags,
+  normalizeNonNegativeMoney,
+  normalizePercentage,
   normalizeMachineDeposit,
   parseStoredCustomerTags,
 } from "@/lib/customers/profile";
@@ -48,10 +52,16 @@ type BackupCustomer = {
   phone: string;
   shopName: string | null;
   category: string;
+  stage?: string;
   machineType: CustomerMachineType | null;
   machineMode: CustomerMachineMode | null;
   feeRate: number | null;
   depositAmount?: number | null;
+  machineSerial?: string | null;
+  machineStatus?: string | null;
+  installedAt?: string | null;
+  monthlyVolume?: number | null;
+  profitShareRate?: number | null;
   address?: string | null;
   tags?: string[];
   bankCardNumber: string | null;
@@ -70,7 +80,7 @@ type BackupActivity = {
   createdAt: string;
 };
 type WorkspaceBackup = {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   exportedAt: string;
   customers: BackupCustomer[];
   activity: BackupActivity[];
@@ -85,8 +95,9 @@ export async function GET(request: Request): Promise<Response> {
   const { db, files } = await getWorkspaceBindings();
   const rows = await db
     .prepare(
-      `SELECT id, owner_id, name, phone, shop_name, category,
+      `SELECT id, owner_id, name, phone, shop_name, category, stage,
               machine_type, machine_mode, fee_rate, deposit_amount,
+              machine_serial, machine_status, installed_at, monthly_volume, profit_share_rate,
               address, tags_json,
               id_card_front_key, id_card_back_key, business_license_key,
               bank_card_ciphertext, bank_card_last4,
@@ -105,10 +116,16 @@ export async function GET(request: Request): Promise<Response> {
       phone: row.phone,
       shopName: row.shop_name,
       category: normalizeCustomerCategory(row.category),
+      stage: row.stage,
       machineType: row.machine_type,
       machineMode: row.machine_mode,
       feeRate: row.fee_rate,
       depositAmount: row.deposit_amount,
+      machineSerial: row.machine_serial,
+      machineStatus: row.machine_status,
+      installedAt: row.installed_at,
+      monthlyVolume: row.monthly_volume,
+      profitShareRate: row.profit_share_rate,
       address: row.address,
       tags: parseStoredCustomerTags(row.tags_json),
       bankCardNumber: row.bank_card_ciphertext
@@ -139,7 +156,7 @@ export async function GET(request: Request): Promise<Response> {
       created_at: string;
     }>();
   const backup: WorkspaceBackup = {
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     customers,
     activity: (activities.results ?? []).map((item) => ({
@@ -190,7 +207,7 @@ export async function POST(request: Request): Promise<Response> {
     } catch {
       backup = JSON.parse(await decryptWorkspaceBackup(raw)) as WorkspaceBackup;
     }
-    if (![1, 2].includes(backup.version) || !Array.isArray(backup.customers) || backup.customers.length > 5000) {
+    if (![1, 2, 3].includes(backup.version) || !Array.isArray(backup.customers) || backup.customers.length > 5000) {
       throw new WorkspaceBackupError();
     }
   } catch {
@@ -254,20 +271,31 @@ export async function POST(request: Request): Promise<Response> {
       const depositAmount = machineType
         ? normalizeMachineDeposit(source.depositAmount)
         : null;
+      const stage = isCustomerStage(source.stage) ? source.stage : "新客户";
+      const machineSerial = typeof source.machineSerial === "string"
+        ? source.machineSerial.trim().slice(0, 80) || null
+        : null;
+      const machineStatus = machineType && isMachineStatus(source.machineStatus)
+        ? source.machineStatus
+        : null;
+      const installedAt = source.installedAt ? validDate(source.installedAt) : null;
+      const monthlyVolume = normalizeNonNegativeMoney(source.monthlyVolume);
+      const profitShareRate = normalizePercentage(source.profitShareRate);
       const address = normalizeCustomerAddress(source.address);
       const tags = normalizeCustomerTags(source.tags);
       await db.batch([
         db
           .prepare(
             `INSERT INTO customers (
-              id, owner_id, name, phone, shop_name, category,
+              id, owner_id, name, phone, shop_name, category, stage,
               machine_type, machine_mode, fee_rate,
-              deposit_amount, address, tags_json,
+              deposit_amount, machine_serial, machine_status, installed_at,
+              monthly_volume, profit_share_rate, address, tags_json,
               id_card_front_key, id_card_back_key, business_license_key,
               bank_card_ciphertext, bank_card_last4,
               next_follow_up_at, deleted_at, purge_after,
               created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, NULL, ?19, ?20)`,
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, NULL, NULL, ?25, ?26)`,
           )
           .bind(
             id,
@@ -276,10 +304,16 @@ export async function POST(request: Request): Promise<Response> {
             phone,
             typeof source.shopName === "string" ? source.shopName.trim().slice(0, 120) || null : null,
             normalizeCustomerCategory(source.category),
+            stage,
             machineType,
             machineMode,
             feeRate,
             depositAmount,
+            machineSerial,
+            machineStatus,
+            installedAt,
+            monthlyVolume,
+            profitShareRate,
             address,
             JSON.stringify(tags),
             frontKey,

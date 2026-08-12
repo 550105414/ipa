@@ -28,8 +28,12 @@ import {
   isValidCustomerFeeRate,
 } from "@/lib/customers/machine";
 import {
+  isCustomerStage,
+  isMachineStatus,
   normalizeCustomerAddress,
   normalizeCustomerTags,
+  normalizeNonNegativeMoney,
+  normalizePercentage,
   normalizeMachineDeposit,
   parseStoredCustomerTags,
 } from "@/lib/customers/profile";
@@ -75,11 +79,17 @@ export async function GET(
         maskedPhone: maskPhone(row.phone),
         profileStatus: profileStatus(row),
         category: normalizeCustomerCategory(row.category),
+        stage: row.stage,
         nextFollowUpAt: row.next_follow_up_at,
         machineType: row.machine_type,
         machineMode: row.machine_mode,
         feeRate: row.fee_rate,
         depositAmount: row.deposit_amount,
+        machineSerial: row.machine_serial,
+        machineStatus: row.machine_status,
+        installedAt: row.installed_at,
+        monthlyVolume: row.monthly_volume,
+        profitShareRate: row.profit_share_rate,
         address: row.address,
         tags: parseStoredCustomerTags(row.tags_json),
         createdAt: row.created_at,
@@ -171,12 +181,18 @@ export async function PATCH(
   if (!owned) return workspaceApiError(404, "CUSTOMER_NOT_FOUND", "未找到客户");
   let body: {
     category?: unknown;
+    stage?: unknown;
     nextFollowUpAt?: unknown;
     shopName?: unknown;
     machineType?: unknown;
     machineMode?: unknown;
     feeRate?: unknown;
     depositAmount?: unknown;
+    machineSerial?: unknown;
+    machineStatus?: unknown;
+    installedAt?: unknown;
+    monthlyVolume?: unknown;
+    profitShareRate?: unknown;
     address?: unknown;
     tags?: unknown;
   };
@@ -186,6 +202,7 @@ export async function PATCH(
     return workspaceApiError(400, "INVALID_CUSTOMER_UPDATE", "客户更新请求无效");
   }
   const updatesCategory = body.category !== undefined;
+  const updatesStage = body.stage !== undefined;
   const updatesFollowUp = body.nextFollowUpAt !== undefined;
   const updatesShopName = body.shopName !== undefined;
   const updatesMachine =
@@ -193,9 +210,15 @@ export async function PATCH(
     body.machineMode !== undefined ||
     body.feeRate !== undefined ||
     body.depositAmount !== undefined;
+  const updatesMachineLedger =
+    body.machineSerial !== undefined ||
+    body.machineStatus !== undefined ||
+    body.installedAt !== undefined ||
+    body.monthlyVolume !== undefined ||
+    body.profitShareRate !== undefined;
   const updatesAddress = body.address !== undefined;
   const updatesTags = body.tags !== undefined;
-  if (!updatesCategory && !updatesFollowUp && !updatesShopName && !updatesMachine && !updatesAddress && !updatesTags) {
+  if (!updatesCategory && !updatesStage && !updatesFollowUp && !updatesShopName && !updatesMachine && !updatesMachineLedger && !updatesAddress && !updatesTags) {
     return workspaceApiError(400, "INVALID_CUSTOMER_UPDATE", "没有需要保存的客户资料");
   }
   const category = updatesCategory
@@ -203,6 +226,10 @@ export async function PATCH(
     : normalizeCustomerCategory(owned.row.category);
   if (updatesCategory && category !== body.category) {
     return workspaceApiError(400, "INVALID_CUSTOMER_CATEGORY", "客户分类无效");
+  }
+  const stage = updatesStage && isCustomerStage(body.stage) ? body.stage : owned.row.stage;
+  if (updatesStage && !isCustomerStage(body.stage)) {
+    return workspaceApiError(400, "INVALID_CUSTOMER_STAGE", "客户阶段无效");
   }
   let nextFollowUpAt = owned.row.next_follow_up_at;
   if (updatesFollowUp) {
@@ -260,6 +287,37 @@ export async function PATCH(
       }
     }
   }
+  let machineSerial = owned.row.machine_serial;
+  let machineStatus = owned.row.machine_status;
+  let installedAt = owned.row.installed_at;
+  let monthlyVolume = owned.row.monthly_volume;
+  let profitShareRate = owned.row.profit_share_rate;
+  if (updatesMachineLedger) {
+    if (body.machineSerial !== undefined) {
+      if (body.machineSerial === null || body.machineSerial === "") machineSerial = null;
+      else if (typeof body.machineSerial === "string" && body.machineSerial.trim().length <= 80) {
+        machineSerial = body.machineSerial.trim();
+      } else {
+        return workspaceApiError(400, "INVALID_MACHINE_SERIAL", "机器序列号不能超过 80 个字符");
+      }
+    }
+    if (body.machineStatus !== undefined) {
+      if (body.machineStatus === null || body.machineStatus === "") machineStatus = null;
+      else if (isMachineStatus(body.machineStatus)) machineStatus = body.machineStatus;
+      else return workspaceApiError(400, "INVALID_MACHINE_STATUS", "机器状态无效");
+    }
+    if (body.installedAt !== undefined) {
+      if (body.installedAt === null || body.installedAt === "") installedAt = null;
+      else if (typeof body.installedAt === "string" && !Number.isNaN(new Date(body.installedAt).getTime())) installedAt = new Date(body.installedAt).toISOString();
+      else return workspaceApiError(400, "INVALID_INSTALLED_AT", "安装时间无效");
+    }
+    try {
+      if (body.monthlyVolume !== undefined) monthlyVolume = normalizeNonNegativeMoney(body.monthlyVolume);
+      if (body.profitShareRate !== undefined) profitShareRate = normalizePercentage(body.profitShareRate);
+    } catch {
+      return workspaceApiError(400, "INVALID_EARNINGS_DETAILS", "月交易额或分润比例无效");
+    }
+  }
   let address = owned.row.address;
   if (updatesAddress) {
     try {
@@ -282,19 +340,27 @@ export async function PATCH(
     db
       .prepare(
         `UPDATE customers
-         SET category = ?1, next_follow_up_at = ?2, shop_name = ?3,
-             machine_type = ?4, machine_mode = ?5, fee_rate = ?6,
-             deposit_amount = ?7, address = ?8, tags_json = ?9, updated_at = ?10
-         WHERE id = ?11 AND owner_id = ?12 AND deleted_at IS NULL`,
+         SET category = ?1, stage = ?2, next_follow_up_at = ?3, shop_name = ?4,
+             machine_type = ?5, machine_mode = ?6, fee_rate = ?7,
+             deposit_amount = ?8, machine_serial = ?9, machine_status = ?10,
+             installed_at = ?11, monthly_volume = ?12, profit_share_rate = ?13,
+             address = ?14, tags_json = ?15, updated_at = ?16
+         WHERE id = ?17 AND owner_id = ?18 AND deleted_at IS NULL`,
       )
       .bind(
         category,
+        stage,
         nextFollowUpAt,
         shopName,
         machineType,
         machineMode,
         feeRate,
         depositAmount,
+        machineSerial,
+        machineStatus,
+        installedAt,
+        monthlyVolume,
+        profitShareRate,
         address,
         JSON.stringify(tags),
         now,
@@ -307,6 +373,10 @@ export async function PATCH(
       customerName: owned.row.name,
       eventType: updatesMachine
         ? "machine_updated"
+        : updatesMachineLedger
+          ? "machine_ledger_updated"
+        : updatesStage
+          ? "stage_updated"
         : updatesShopName
         ? "shop_name_updated"
         : updatesFollowUp
@@ -318,6 +388,10 @@ export async function PATCH(
         ? machineType && machineMode && feeRate !== null
           ? `机器更新为 ${machineType} · ${machineMode} · ${feeRate}%${depositAmount === null ? "" : ` · 押金 ¥${depositAmount}`}`
           : "已清空机器信息"
+        : updatesMachineLedger
+          ? "机器台账与收益参数已更新"
+        : updatesStage
+          ? `客户阶段更新为 ${stage}`
         : updatesShopName
         ? shopName
           ? `店铺名字更新为“${shopName}”`
@@ -334,12 +408,18 @@ export async function PATCH(
   ]);
   return privateJson({
     category,
+    stage,
     nextFollowUpAt,
     shopName,
     machineType,
     machineMode,
     feeRate,
     depositAmount,
+    machineSerial,
+    machineStatus,
+    installedAt,
+    monthlyVolume,
+    profitShareRate,
     address,
     tags,
   });

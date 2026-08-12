@@ -20,16 +20,16 @@ test('Expo iOS release configuration stays pinned', async () => {
   );
 
   assert.equal(appConfig.expo.name, '工作台');
-  assert.equal(appConfig.expo.version, '1.3.2');
+  assert.equal(appConfig.expo.version, '1.3.3');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '7');
+  assert.equal(appConfig.expo.ios.buildNumber, '8');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
-  assert.equal(packageJson.version, '1.3.2');
-  assert.equal(packageLock.version, '1.3.2');
-  assert.equal(packageLock.packages[''].version, '1.3.2');
+  assert.equal(packageJson.version, '1.3.3');
+  assert.equal(packageLock.version, '1.3.3');
+  assert.equal(packageLock.packages[''].version, '1.3.3');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
@@ -68,7 +68,37 @@ test('Face ID session is fail-closed and expires after exactly one hour', async 
   assert.match(gateSource, /if \(!enrolled\)[\s\S]*?录入 Face ID/);
   assert.match(gateSource, /setTimeout\(\(\) => lock\(\), remaining\)/);
   assert.match(gateSource, /state === 'active'[\s\S]*?restoreOrUnlock\(\)/);
+  assert.match(gateSource, /accessibilityElementsHidden=\{locked\}/);
+  assert.match(gateSource, /pointerEvents=\{locked \? 'none' : 'auto'\}/);
+  assert.match(gateSource, /opacity: locked \? 0 : 1/);
+  assert.ok(gateSource.indexOf('{children}') < gateSource.indexOf('{locked ? ('));
   assert.match(workspaceApiSource, /revokeFaceIdSession\(\)/);
+});
+
+test('personal workspace improvements include dashboard, follow-up history, ledger, and daily backup restore', async () => {
+  const [home, today, detail, edit, backup, layout] = await Promise.all([
+    readFile(new URL('src/app/index.tsx', projectRoot), 'utf8'),
+    readFile(new URL('src/app/today.tsx', projectRoot), 'utf8'),
+    readFile(new URL('src/app/customer/[id].tsx', projectRoot), 'utf8'),
+    readFile(new URL('src/app/customer/[id]/edit.tsx', projectRoot), 'utf8'),
+    readFile(new URL('src/lib/auto-backup.ts', projectRoot), 'utf8'),
+    readFile(new URL('src/app/_layout.tsx', projectRoot), 'utf8'),
+  ]);
+
+  assert.match(home, /label="今日工作"/);
+  assert.match(home, /runDailyWorkspaceBackup\(\)/);
+  assert.match(layout, /name="today"/);
+  assert.match(today, /\/api\/workspace-dashboard/);
+  assert.match(today, /到期跟进/);
+  assert.match(today, /数据体检/);
+  assert.match(detail, /记录本次跟进/);
+  assert.match(detail, /\/activity/);
+  assert.match(detail, /机器台账与收益/);
+  assert.match(edit, /客户阶段/);
+  assert.match(edit, /机器序列号/);
+  assert.match(edit, /分润比例/);
+  assert.match(backup, /Paths\.document/);
+  assert.match(backup, /工作台-自动备份-最新\.json/);
 });
 
 test('iOS widget implementation wins Metro platform resolution', async () => {

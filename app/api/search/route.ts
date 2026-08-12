@@ -213,8 +213,9 @@ async function handleWorkspaceSearch(
   const pageValues = [...values, params.limit + 1, params.offset];
   const rows = await db
     .prepare(
-      `SELECT id, owner_id, name, phone, shop_name, category,
+      `SELECT id, owner_id, name, phone, shop_name, category, stage,
               machine_type, machine_mode, fee_rate, deposit_amount,
+              machine_serial, machine_status, installed_at, monthly_volume, profit_share_rate,
               address, tags_json, business_license_key,
               id_card_front_key, id_card_back_key,
               bank_card_ciphertext, bank_card_last4,
@@ -238,11 +239,17 @@ async function handleWorkspaceSearch(
       maskedPhone: maskPhone(row.phone),
       profileStatus: profileStatus(row),
       category: normalizeCustomerCategory(row.category),
+      stage: row.stage,
       nextFollowUpAt: row.next_follow_up_at,
       machineType: row.machine_type,
       machineMode: row.machine_mode,
       feeRate: row.fee_rate,
       depositAmount: row.deposit_amount,
+      machineSerial: row.machine_serial,
+      machineStatus: row.machine_status,
+      installedAt: row.installed_at,
+      monthlyVolume: row.monthly_volume,
+      profitShareRate: row.profit_share_rate,
       address: row.address,
       tags: parseStoredCustomerTags(row.tags_json),
       createdAt: row.created_at,

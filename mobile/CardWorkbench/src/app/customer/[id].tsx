@@ -1,15 +1,16 @@
 import { Image, type ImageSource } from 'expo-image';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SymbolIcon } from '@/components/symbol-icon';
 import { WorkspaceError, WorkspaceLoading } from '@/components/workspace-screen-state';
 import { workspaceImageSource, workspaceJson } from '@/lib/workspace-api';
 import { colors } from '@/theme/colors';
-import type { CustomerDetail, CustomerSensitive } from '@/types/customer';
+import type { CustomerActivity, CustomerDetail, CustomerSensitive } from '@/types/customer';
 
 type DetailResponse = { customer: CustomerDetail };
+const contactResults = ['已联系', '未接', '待回访', '已成交'] as const;
 
 export default function CustomerDetailScreen() {
   const router = useRouter();
@@ -23,6 +24,9 @@ export default function CustomerDetailScreen() {
     license?: ImageSource;
   }>({});
   const [loading, setLoading] = useState(true);
+  const [activities, setActivities] = useState<CustomerActivity[]>([]);
+  const [contactNote, setContactNote] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -30,11 +34,13 @@ export default function CustomerDetailScreen() {
     setLoading(true);
     setError(null);
     try {
-      const detail = await workspaceJson<DetailResponse>(`/api/customers/${encodeURIComponent(id)}`);
-      const protectedData = await workspaceJson<CustomerSensitive>(
-        `/api/customers/${encodeURIComponent(id)}/sensitive`,
-        { method: 'POST', body: '{}' },
-      );
+      const [detail, protectedData, activityResponse] = await Promise.all([
+        workspaceJson<DetailResponse>(`/api/customers/${encodeURIComponent(id)}`),
+        workspaceJson<CustomerSensitive>(`/api/customers/${encodeURIComponent(id)}/sensitive`, {
+          method: 'POST', body: '{}',
+        }),
+        workspaceJson<{ items: CustomerActivity[] }>(`/api/customers/${encodeURIComponent(id)}/activity`),
+      ]);
       const [front, back, license] = await Promise.all([
         workspaceImageSource(protectedData.idCard.frontUrl),
         workspaceImageSource(protectedData.idCard.backUrl),
@@ -42,6 +48,7 @@ export default function CustomerDetailScreen() {
       ]);
       setCustomer(detail.customer);
       setSensitive(protectedData);
+      setActivities(activityResponse.items);
       setImageSources({ front, back, license });
     } catch (loadError) {
       setError(loadError);
@@ -68,6 +75,22 @@ export default function CustomerDetailScreen() {
         },
       },
     ]);
+  };
+
+  const recordContact = async (result: (typeof contactResults)[number]) => {
+    setSavingContact(true);
+    try {
+      await workspaceJson(`/api/customers/${encodeURIComponent(id)}/activity`, {
+        method: 'POST',
+        body: JSON.stringify({ result, note: contactNote.trim() }),
+      });
+      setContactNote('');
+      await load();
+    } catch (activityError) {
+      Alert.alert('记录失败', errorMessage(activityError));
+    } finally {
+      setSavingContact(false);
+    }
   };
 
   if (loading) return <WorkspaceLoading label="正在读取客户资料…" />;
@@ -107,6 +130,7 @@ export default function CustomerDetailScreen() {
 
       <Section title="客户信息">
         <InfoRow label="客户分类" value={customer.category ?? '直营'} />
+        <InfoRow label="客户阶段" value={customer.stage ?? '新客户'} />
         <InfoRow label="资料状态" value={customer.profileStatus === 'completed' ? '资料完整' : '资料待补'} />
         <InfoRow label="录入时间" value={formatDateTime(customer.createdAt)} />
         <InfoRow label="下次跟进" value={formatDateTime(customer.nextFollowUpAt)} />
@@ -119,6 +143,50 @@ export default function CustomerDetailScreen() {
         <InfoRow label="模式" value={customer.machineMode || '未选择'} />
         <InfoRow label="费率" value={customer.feeRate == null ? '未录入' : `${customer.feeRate}%`} />
         <InfoRow label="押金" value={customer.depositAmount == null ? '未录入' : `¥${customer.depositAmount}`} last />
+      </Section>
+
+      <Section title="机器台账与收益">
+        <InfoRow label="序列号" value={customer.machineSerial || '未录入'} />
+        <InfoRow label="机器状态" value={customer.machineStatus || '未设置'} />
+        <InfoRow label="安装时间" value={formatDateTime(customer.installedAt)} />
+        <InfoRow label="月交易额" value={customer.monthlyVolume == null ? '未录入' : `¥${formatMoney(customer.monthlyVolume)}`} />
+        <InfoRow label="分润比例" value={customer.profitShareRate == null ? '未录入' : `${customer.profitShareRate}%`} />
+        <InfoRow label="预计月收益" value={`¥${formatMoney((customer.monthlyVolume ?? 0) * (customer.profitShareRate ?? 0) / 100)}`} last />
+      </Section>
+
+      <Section title="记录本次跟进">
+        <TextInput
+          value={contactNote}
+          onChangeText={setContactNote}
+          maxLength={300}
+          multiline
+          placeholder="填写沟通重点（选填）"
+          placeholderTextColor={colors.tertiaryLabel}
+          style={styles.contactInput}
+        />
+        <View style={styles.contactChoices}>
+          {contactResults.map((result) => (
+            <Pressable
+              key={result}
+              disabled={savingContact}
+              onPress={() => void recordContact(result)}
+              style={({ pressed }) => [styles.contactChoice, { opacity: pressed || savingContact ? 0.55 : 1 }]}>
+              <Text style={styles.contactChoiceText}>{result}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </Section>
+
+      <Section title="跟进与操作记录">
+        {activities.length ? activities.map((activity, index) => (
+          <View key={activity.id} style={[styles.activity, index < activities.length - 1 && styles.divider]}>
+            <View style={styles.activityDot} />
+            <View style={{ minWidth: 0, flex: 1, gap: 4 }}>
+              <Text selectable style={styles.activitySummary}>{activity.summary}</Text>
+              <Text selectable style={styles.activityTime}>{formatDateTime(activity.createdAt)}</Text>
+            </View>
+          </View>
+        )) : <Text selectable style={styles.activityEmpty}>还没有跟进记录</Text>}
       </Section>
 
       <Section title="银行卡">
@@ -208,6 +276,10 @@ function formatBankCard(value?: string | null): string {
   return value ? value.replace(/(\d{4})(?=\d)/g, '$1 ') : '未录入';
 }
 
+function formatMoney(value: number): string {
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '请稍后重试。';
 }
@@ -243,4 +315,13 @@ const styles = StyleSheet.create({
   deleteText: { color: '#C43D3D', fontSize: 16, fontWeight: '800' },
   editButton: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 17, borderCurve: 'continuous', backgroundColor: colors.blueTint },
   editText: { color: colors.blue, fontSize: 16, fontWeight: '800' },
+  contactInput: { minHeight: 78, padding: 12, borderRadius: 14, borderCurve: 'continuous', backgroundColor: '#F4F6FA', color: colors.label, fontSize: 15, textAlignVertical: 'top' },
+  contactChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 14 },
+  contactChoice: { minHeight: 40, flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, borderRadius: 13, borderCurve: 'continuous', backgroundColor: colors.blueTint },
+  contactChoiceText: { color: colors.blue, fontSize: 14, fontWeight: '800' },
+  activity: { minHeight: 63, flexDirection: 'row', gap: 11, paddingVertical: 12 },
+  activityDot: { width: 9, height: 9, marginTop: 5, borderRadius: 5, backgroundColor: colors.blue },
+  activitySummary: { color: colors.label, fontSize: 14, lineHeight: 20 },
+  activityTime: { color: colors.tertiaryLabel, fontSize: 11 },
+  activityEmpty: { color: colors.secondaryLabel, fontSize: 14, paddingVertical: 20, textAlign: 'center' },
 });

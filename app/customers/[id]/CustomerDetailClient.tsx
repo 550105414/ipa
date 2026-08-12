@@ -33,6 +33,8 @@ import {
 } from "@/lib/customers/machine";
 import {
   CUSTOMER_CALL_RESULTS,
+  isCustomerStage,
+  isMachineStatus,
   MAX_MACHINE_DEPOSIT,
   type CustomerCallResult,
 } from "@/lib/customers/profile";
@@ -76,11 +78,17 @@ type RawCustomerDetail = {
   merchantName?: unknown;
   notes?: unknown;
   category?: unknown;
+  stage?: unknown;
   nextFollowUpAt?: unknown;
   machineType?: unknown;
   machineMode?: unknown;
   feeRate?: unknown;
   depositAmount?: unknown;
+  machineSerial?: unknown;
+  machineStatus?: unknown;
+  installedAt?: unknown;
+  monthlyVolume?: unknown;
+  profitShareRate?: unknown;
   address?: unknown;
   tags?: unknown;
   businessLicense?: { uploaded?: unknown };
@@ -130,6 +138,7 @@ function normalizeCustomer(
     )
       ? (value.category as LocalCustomerCategory)
       : "直营",
+    stage: isCustomerStage(value.stage) ? value.stage : "新客户",
     nextFollowUpAt:
       typeof value.nextFollowUpAt === "string" ? value.nextFollowUpAt : null,
     machineType: isCustomerMachineType(value.machineType) ? value.machineType : null,
@@ -140,6 +149,17 @@ function normalizeCustomer(
       Number.isFinite(value.depositAmount) &&
       value.depositAmount >= 0
         ? value.depositAmount
+        : null,
+    machineSerial: typeof value.machineSerial === "string" ? value.machineSerial : null,
+    machineStatus: isMachineStatus(value.machineStatus) ? value.machineStatus : null,
+    installedAt: typeof value.installedAt === "string" ? value.installedAt : null,
+    monthlyVolume:
+      typeof value.monthlyVolume === "number" && Number.isFinite(value.monthlyVolume)
+        ? value.monthlyVolume
+        : null,
+    profitShareRate:
+      typeof value.profitShareRate === "number" && Number.isFinite(value.profitShareRate)
+        ? value.profitShareRate
         : null,
     address: typeof value.address === "string" ? value.address : null,
     tags: Array.isArray(value.tags)
@@ -225,7 +245,7 @@ function normalizeSensitiveData(value: CustomerSensitiveData): CustomerSensitive
   };
 }
 
-function formatDate(value: string | null): string {
+function formatDate(value?: string | null): string {
   if (!value) return "时间未记录";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -1695,6 +1715,12 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
                   {customer.category ?? "直营"}
                 </dd>
               </div>
+              <div className="flex items-start justify-between gap-4 py-4">
+                <dt className="text-sm text-[#7a8699]">客户阶段</dt>
+                <dd className="rounded-full bg-[#eef4ff] px-3 py-1 text-right text-xs font-semibold text-[#2859d9]">
+                  {customer.stage ?? "新客户"}
+                </dd>
+              </div>
               {customer.shopName && (
                 <div className="flex items-start justify-between gap-4 py-4">
                   <dt className="text-sm text-[#7a8699]">店铺名字</dt>
@@ -1723,6 +1749,24 @@ export function CustomerDetailClient({ customerId }: { customerId: string }) {
                       {customer.depositAmount === null || customer.depositAmount === undefined
                         ? "未填写"
                         : `¥${customer.depositAmount.toLocaleString("zh-CN")}`}
+                    </dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4 py-4">
+                    <dt className="text-sm text-[#7a8699]">机器序列号</dt>
+                    <dd className="text-right text-sm font-medium text-[#344054]">{customer.machineSerial || "未填写"}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4 py-4">
+                    <dt className="text-sm text-[#7a8699]">机器状态</dt>
+                    <dd className="text-right text-sm font-medium text-[#344054]">{customer.machineStatus || "未设置"}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4 py-4">
+                    <dt className="text-sm text-[#7a8699]">安装时间</dt>
+                    <dd className="text-right text-sm font-medium text-[#344054]">{formatDate(customer.installedAt)}</dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-4 py-4">
+                    <dt className="text-sm text-[#7a8699]">月交易额 / 预计分润</dt>
+                    <dd className="text-right text-sm font-semibold text-[#2f6bff]">
+                      ¥{(customer.monthlyVolume ?? 0).toLocaleString("zh-CN")} / ¥{(((customer.monthlyVolume ?? 0) * (customer.profitShareRate ?? 0)) / 100).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}
                     </dd>
                   </div>
                 </>

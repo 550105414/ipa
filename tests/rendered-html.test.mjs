@@ -302,3 +302,30 @@ test("local vault unlock material is issued only after password verification", a
   assert.notEqual(payload.userScope, payload.unlockSecret);
   assert.equal(payload.userScope, scopePayload.userScope);
 });
+
+test("personal dashboard, stages, ledger, contact history, and backup migration stay owner-scoped", async () => {
+  const [server, dashboard, activity, customer, backup] = await Promise.all([
+    readFile(new URL("lib/workspace/server.ts", projectRoot), "utf8"),
+    readFile(new URL("app/api/workspace-dashboard/route.ts", projectRoot), "utf8"),
+    readFile(new URL("app/api/customers/[id]/activity/route.ts", projectRoot), "utf8"),
+    readFile(new URL("app/api/customers/[id]/route.ts", projectRoot), "utf8"),
+    readFile(new URL("app/api/backup/route.ts", projectRoot), "utf8"),
+  ]);
+
+  assert.match(server, /stage TEXT NOT NULL DEFAULT '新客户'/);
+  assert.match(server, /machine_serial TEXT/);
+  assert.match(server, /profit_share_rate REAL/);
+  assert.ok(
+    server.indexOf("await ensureCustomerColumns(db)") <
+      server.indexOf("idx_customers_owner_stage", server.indexOf("await ensureCustomerColumns(db)")),
+  );
+  assert.match(dashboard, /workspaceUserId\(request\)/);
+  assert.match(dashboard, /WHERE owner_id = \?1 AND deleted_at IS NULL/);
+  assert.match(activity, /findOwnedCustomer\(request, id\)/);
+  assert.match(activity, /ORDER BY created_at DESC LIMIT 100/);
+  assert.match(customer, /machine_ledger_updated/);
+  assert.match(customer, /stage_updated/);
+  assert.match(backup, /version: 3/);
+  assert.match(backup, /machineSerial: row\.machine_serial/);
+  assert.match(backup, /profitShareRate: row\.profit_share_rate/);
+});

@@ -15,6 +15,36 @@ interface RouteContext {
   params: Promise<{ id: string }> | { id: string };
 }
 
+export async function GET(request: Request, context: RouteContext): Promise<Response> {
+  if (!(await isWorkspaceCloudConfigured())) {
+    return apiError(409, "CLOUD_SYNC_REQUIRED", "联系记录需要启用云端同步");
+  }
+  const { id: encodedId } = await context.params;
+  let id = "";
+  try {
+    id = decodeURIComponent(encodedId).trim();
+  } catch {
+    return apiError(404, "CUSTOMER_NOT_FOUND", "未找到客户");
+  }
+  const owned = await findOwnedCustomer(request, id);
+  if (!owned) return apiError(404, "CUSTOMER_NOT_FOUND", "未找到客户");
+  const { db } = await getWorkspaceBindings();
+  const rows = await db.prepare(
+    `SELECT id, event_type, summary, created_at
+     FROM customer_activity
+     WHERE owner_id = ?1 AND customer_id = ?2
+     ORDER BY created_at DESC LIMIT 100`,
+  ).bind(owned.userId, id).all<{ id: string; event_type: string; summary: string; created_at: string }>();
+  return privateJson({
+    items: (rows.results ?? []).map((row) => ({
+      id: row.id,
+      eventType: row.event_type,
+      summary: row.summary,
+      createdAt: row.created_at,
+    })),
+  });
+}
+
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   if (!(await isWorkspaceCloudConfigured())) {
     return apiError(409, "CLOUD_SYNC_REQUIRED", "联系记录需要启用云端同步");

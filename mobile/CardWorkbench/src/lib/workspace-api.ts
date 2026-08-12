@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
 import { normalizePinnedWorkspaceBaseUrl } from '@/config/workspace';
+import { revokeFaceIdSession } from '@/lib/face-id-session';
 
 const BASE_URL_KEY = 'workspace.base-url';
 const DISPATCH_TOKEN_KEY = 'workspace.dispatch-token';
@@ -57,6 +58,7 @@ export async function clearWorkspaceSession(): Promise<void> {
     SecureStore.deleteItemAsync(BASE_URL_KEY),
     SecureStore.deleteItemAsync(DISPATCH_TOKEN_KEY),
     SecureStore.deleteItemAsync(DEVICE_TOKEN_KEY),
+    revokeFaceIdSession(),
   ]);
 }
 

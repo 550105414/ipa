@@ -2,24 +2,56 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { type PropsWithChildren, useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Pressable, Text, View } from 'react-native';
 
+import {
+  createFaceIdSession,
+  loadValidFaceIdSession,
+  subscribeToFaceIdSessionRevocation,
+} from '@/lib/face-id-session';
 import { colors } from '@/theme/colors';
 
 export function PrivacyGate({ children }: PropsWithChildren) {
   const [locked, setLocked] = useState(true);
-  const [message, setMessage] = useState('正在验证设备身份…');
+  const [message, setMessage] = useState('正在检查 Face ID…');
   const authenticating = useRef(false);
+  const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const lock = useCallback((nextMessage = 'Face ID 解锁已过期，请重新验证。') => {
+    if (expiryTimer.current) clearTimeout(expiryTimer.current);
+    expiryTimer.current = null;
+    setLocked(true);
+    setMessage(nextMessage);
+  }, []);
+
+  const acceptSession = useCallback(
+    (expiresAt: number) => {
+      if (expiryTimer.current) clearTimeout(expiryTimer.current);
+      const remaining = expiresAt - Date.now();
+      if (remaining <= 0) {
+        lock();
+        return;
+      }
+      setLocked(false);
+      setMessage('');
+      expiryTimer.current = setTimeout(() => lock(), remaining);
+    },
+    [lock],
+  );
 
   const unlock = useCallback(async () => {
     if (authenticating.current) return;
     authenticating.current = true;
-    setMessage('正在验证设备身份…');
+    setMessage('正在验证 Face ID…');
     try {
       const [hasHardware, enrolled] = await Promise.all([
         LocalAuthentication.hasHardwareAsync(),
         LocalAuthentication.isEnrolledAsync(),
       ]);
-      if (!hasHardware || !enrolled) {
-        setLocked(false);
+      if (!hasHardware) {
+        lock('这台设备不支持 Face ID，无法解锁个人资料。');
+        return;
+      }
+      if (!enrolled) {
+        lock('请先在 iPhone“设置”中录入 Face ID。');
         return;
       }
       const result = await LocalAuthentication.authenticateAsync({
@@ -29,33 +61,50 @@ export function PrivacyGate({ children }: PropsWithChildren) {
         disableDeviceFallback: false,
       });
       if (result.success) {
-        setLocked(false);
-        setMessage('');
+        acceptSession(await createFaceIdSession());
       } else {
         setMessage('验证未完成，请重试。');
       }
     } catch {
-      setMessage('暂时无法验证设备身份，请重试。');
+      lock('暂时无法验证 Face ID，请重试。');
     } finally {
       authenticating.current = false;
     }
-  }, []);
+  }, [acceptSession, lock]);
+
+  const restoreOrUnlock = useCallback(async () => {
+    try {
+      const expiresAt = await loadValidFaceIdSession();
+      if (expiresAt) {
+        acceptSession(expiresAt);
+        return;
+      }
+    } catch {
+      // A Keychain read failure must never silently bypass the privacy gate.
+    }
+    lock('请使用 Face ID 解锁，有效期为 1 小时。');
+    await unlock();
+  }, [acceptSession, lock, unlock]);
 
   useEffect(() => {
-    void unlock();
-  }, [unlock]);
+    void restoreOrUnlock();
+    const unsubscribe = subscribeToFaceIdSessionRevocation(() =>
+      lock('登录状态已变更，请重新验证 Face ID。'),
+    );
+    return () => {
+      unsubscribe();
+      if (expiryTimer.current) clearTimeout(expiryTimer.current);
+    };
+  }, [lock, restoreOrUnlock]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'background') {
-        setLocked(true);
-        setMessage('工作台已锁定');
-      } else if (state === 'active' && locked) {
-        void unlock();
-      }
+      // Backgrounding does not extend the one-hour lease. Re-check the signed
+      // Keychain timestamp whenever the app returns to the foreground.
+      if (state === 'active') void restoreOrUnlock();
     });
     return () => subscription.remove();
-  }, [locked, unlock]);
+  }, [restoreOrUnlock]);
 
   if (!locked) return children;
 
@@ -86,7 +135,7 @@ export function PrivacyGate({ children }: PropsWithChildren) {
       </View>
       <View style={{ alignItems: 'center', gap: 7 }}>
         <Text selectable style={{ color: colors.label, fontSize: 22, fontWeight: '700' }}>
-          个人工作台已锁定
+          Face ID 已锁定
         </Text>
         <Text selectable style={{ color: colors.secondaryLabel, fontSize: 14, textAlign: 'center' }}>
           {message}
@@ -104,7 +153,7 @@ export function PrivacyGate({ children }: PropsWithChildren) {
           borderCurve: 'continuous',
           backgroundColor: pressed ? '#2866AB' : colors.blue,
         })}>
-        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>验证并进入</Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>使用 Face ID 解锁</Text>
       </Pressable>
     </View>
   );

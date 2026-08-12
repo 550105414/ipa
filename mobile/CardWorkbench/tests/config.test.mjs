@@ -20,16 +20,16 @@ test('Expo iOS release configuration stays pinned', async () => {
   );
 
   assert.equal(appConfig.expo.name, '工作台');
-  assert.equal(appConfig.expo.version, '1.3.1');
+  assert.equal(appConfig.expo.version, '1.3.2');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '6');
+  assert.equal(appConfig.expo.ios.buildNumber, '7');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
-  assert.equal(packageJson.version, '1.3.1');
-  assert.equal(packageLock.version, '1.3.1');
-  assert.equal(packageLock.packages[''].version, '1.3.1');
+  assert.equal(packageJson.version, '1.3.2');
+  assert.equal(packageLock.version, '1.3.2');
+  assert.equal(packageLock.packages[''].version, '1.3.2');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
@@ -46,6 +46,29 @@ test('Expo iOS release configuration stays pinned', async () => {
   assert.equal(widgetPlugin[1].widgets[0].name, 'TodoWidget');
   assert.match(packageJson.dependencies['expo-widgets'], /^~55\./);
   assert.match(packageJson.dependencies['@expo/ui'], /^~55\./);
+  assert.match(packageJson.dependencies['expo-local-authentication'], /^~55\./);
+  assert.match(appConfig.expo.ios.infoPlist.NSFaceIDUsageDescription, /保护个人客户资料/);
+});
+
+test('Face ID session is fail-closed and expires after exactly one hour', async () => {
+  const [sessionSource, gateSource, workspaceApiSource] = await Promise.all([
+    readFile(new URL('src/lib/face-id-session.ts', projectRoot), 'utf8'),
+    readFile(new URL('src/components/privacy-gate.tsx', projectRoot), 'utf8'),
+    readFile(new URL('src/lib/workspace-api.ts', projectRoot), 'utf8'),
+  ]);
+
+  assert.match(sessionSource, /FACE_ID_SESSION_DURATION_MS = 60 \* 60 \* 1000/);
+  assert.match(sessionSource, /WHEN_UNLOCKED_THIS_DEVICE_ONLY/);
+  assert.match(sessionSource, /session\.expiresAt - session\.issuedAt === FACE_ID_SESSION_DURATION_MS/);
+  assert.match(sessionSource, /session\.expiresAt > now/);
+  assert.match(gateSource, /loadValidFaceIdSession\(\)/);
+  assert.match(gateSource, /authenticateAsync\(/);
+  assert.match(gateSource, /disableDeviceFallback: false/);
+  assert.match(gateSource, /if \(!hasHardware\)[\s\S]*?无法解锁个人资料/);
+  assert.match(gateSource, /if \(!enrolled\)[\s\S]*?录入 Face ID/);
+  assert.match(gateSource, /setTimeout\(\(\) => lock\(\), remaining\)/);
+  assert.match(gateSource, /state === 'active'[\s\S]*?restoreOrUnlock\(\)/);
+  assert.match(workspaceApiSource, /revokeFaceIdSession\(\)/);
 });
 
 test('iOS widget implementation wins Metro platform resolution', async () => {

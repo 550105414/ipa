@@ -28,8 +28,8 @@ jobs:
       # generated project name (`app`), not from this repository folder name.
       SCHEME: app
       WIDGET_TARGET: ExpoWidgetsTarget
-      APP_VERSION: 1.3.1
-      APP_BUILD: "6"
+      APP_VERSION: 1.3.2
+      APP_BUILD: "7"
       WIDGET_DISPLAY_NAME: 工作台待办
 
     steps:

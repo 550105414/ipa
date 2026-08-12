@@ -23,19 +23,21 @@ type LocalSyncRow = {
   updated_at: string;
 };
 
-type SyncResult = {
+export type TaskSyncResult = {
+  paired: boolean;
   pulled: number;
   pushed: number;
+  remoteCount: number;
 };
 
-const syncByDatabase = new WeakMap<SQLiteDatabase, Promise<SyncResult>>();
+const syncByDatabase = new WeakMap<SQLiteDatabase, Promise<TaskSyncResult>>();
 
 /**
  * Reconciles the offline SQLite task list with the paired workspace.
  * Local pending changes win; otherwise the cloud copy wins. Star/category/notes
  * remain device-local because the current cloud task model does not expose them.
  */
-export async function syncWorkspaceTasks(database: SQLiteDatabase): Promise<SyncResult> {
+export async function syncWorkspaceTasks(database: SQLiteDatabase): Promise<TaskSyncResult> {
   const running = syncByDatabase.get(database);
   if (running) return running;
 
@@ -46,9 +48,9 @@ export async function syncWorkspaceTasks(database: SQLiteDatabase): Promise<Sync
   return operation;
 }
 
-async function performSync(database: SQLiteDatabase): Promise<SyncResult> {
+async function performSync(database: SQLiteDatabase): Promise<TaskSyncResult> {
   const session = await loadWorkspaceSession();
-  if (!session) return { pulled: 0, pushed: 0 };
+  if (!session) return { paired: false, pulled: 0, pushed: 0, remoteCount: 0 };
 
   const [items, localRows] = await Promise.all([
     fetchAllRemoteTasks(),
@@ -134,7 +136,7 @@ async function performSync(database: SQLiteDatabase): Promise<SyncResult> {
     pulled += 1;
   }
 
-  return { pulled, pushed };
+  return { paired: true, pulled, pushed, remoteCount: items.length };
 }
 
 async function createRemoteTask(local: LocalSyncRow): Promise<RemoteTask> {

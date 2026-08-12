@@ -10,6 +10,7 @@ export type TodoWidgetSnapshot = {
   total: number;
   tasks: TodoWidgetTask[];
   updatedAt: string;
+  syncState: 'ready' | 'unpaired' | 'error';
 };
 
 export type WidgetSyncTask = {
@@ -21,4 +22,11 @@ export type WidgetSyncTask = {
   isStarred?: boolean;
   starred?: boolean;
   dueLabel?: string | null;
+};
+
+export type TodoWidgetSyncState = TodoWidgetSnapshot['syncState'];
+
+export type TodoWidgetSyncResult = {
+  total: number;
+  updatedAt: string;
 };

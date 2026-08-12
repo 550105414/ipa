@@ -44,7 +44,7 @@ export default function PairScreen() {
     setMessage('');
     try {
       await exchangePairing(pairing);
-      await refresh();
+      await refresh({ requireCloud: true });
       setStatus('paired');
     } catch (error) {
       setStatus('error');

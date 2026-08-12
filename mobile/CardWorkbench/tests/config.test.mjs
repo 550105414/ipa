@@ -20,16 +20,16 @@ test('Expo iOS release configuration stays pinned', async () => {
   );
 
   assert.equal(appConfig.expo.name, '工作台');
-  assert.equal(appConfig.expo.version, '1.3.0');
+  assert.equal(appConfig.expo.version, '1.3.1');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '5');
+  assert.equal(appConfig.expo.ios.buildNumber, '6');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
-  assert.equal(packageJson.version, '1.3.0');
-  assert.equal(packageLock.version, '1.3.0');
-  assert.equal(packageLock.packages[''].version, '1.3.0');
+  assert.equal(packageJson.version, '1.3.1');
+  assert.equal(packageLock.version, '1.3.1');
+  assert.equal(packageLock.packages[''].version, '1.3.1');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
@@ -76,8 +76,12 @@ test('iOS widget implementation wins Metro platform resolution', async () => {
   assert.doesNotMatch(compatibilityPlugin, /policy: \.never/);
   assert.match(compatibilityPlugin, /static let preview/);
   assert.match(compatibilityPlugin, /redactionReasons\.contains\(\.placeholder\)/);
-  assert.match(compatibilityPlugin, /打开工作台同步/);
+  assert.match(compatibilityPlugin, /打开工作台完成连接/);
+  assert.match(compatibilityPlugin, /同步失败，打开工作台重试/);
   assert.match(iosWidgetSource, /DEFERRED_RELOAD_DELAY_MS/);
+  assert.match(iosWidgetSource, /VERIFY_RETRY_DELAYS_MS/);
+  assert.match(iosWidgetSource, /await TodoWidget\.getTimeline\(\)/);
+  assert.match(iosWidgetSource, /entry\.props\.updatedAt === snapshot\.updatedAt/);
 });
 
 test('TrollStore signing keeps the widget container entitlement extension-only', async () => {
@@ -141,11 +145,15 @@ test('paired task sync remains offline-first and updates the widget from merged 
   assert.match(databaseSource, /const DATABASE_VERSION = 4/);
   assert.match(databaseSource, /remote_id TEXT/);
   assert.match(databaseSource, /sync_state TEXT NOT NULL DEFAULT 'pending'/);
-  assert.match(providerSource, /await syncWorkspaceTasks\(database\)\.catch/);
+  assert.match(providerSource, /cloud = await syncWorkspaceTasks\(database\)/);
   assert.ok(
     providerSource.indexOf('syncWorkspaceTasks(database)') <
-      providerSource.indexOf('syncTodoWidget('),
+      providerSource.indexOf('publishLocalState('),
   );
+  assert.match(providerSource, /const widget = await syncTodoWidget\(widgetTasks, widgetState\)/);
+  assert.match(providerSource, /setTasks\(nextTasks\)[\s\S]*?await syncTodoWidget/);
+  assert.match(providerSource, /await toggleTaskCompletion\(database, id\)[\s\S]*?await publishMutationImmediately\(\)/);
+  assert.match(providerSource, /void refresh\(\)\.catch/);
   assert.match(syncSource, /loadWorkspaceSession\(\)/);
   assert.match(syncSource, /fetchAllRemoteTasks\(\)/);
   assert.match(syncSource, /pageSize: '200'/);

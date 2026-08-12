@@ -13,12 +13,15 @@ import { createWidget, type WidgetEnvironment } from 'expo-widgets';
 
 import type {
   TodoWidgetSnapshot,
+  TodoWidgetSyncResult,
+  TodoWidgetSyncState,
   TodoWidgetTask,
   WidgetSyncTask,
 } from '@/widgets/widget-types';
 
 const DEFAULT_ACCENT = '#3B78B9';
 const DEFERRED_RELOAD_DELAY_MS = 450;
+const VERIFY_RETRY_DELAYS_MS = [80, 180, 360] as const;
 let deferredReload: ReturnType<typeof setTimeout> | null = null;
 
 function TaskRow({ task }: { task: TodoWidgetTask }) {
@@ -70,6 +73,12 @@ function TodoWidgetView(props: TodoWidgetSnapshot, environment: WidgetEnvironmen
     0,
     environment.widgetFamily === 'systemSmall' ? 3 : 5,
   );
+  const emptyMessage =
+    props.syncState === 'unpaired'
+      ? '打开工作台完成连接'
+      : props.syncState === 'error'
+        ? '同步失败，打开工作台重试'
+        : '暂无待办';
 
   return (
     <VStack
@@ -107,13 +116,17 @@ function TodoWidgetView(props: TodoWidgetSnapshot, environment: WidgetEnvironmen
           alignment="center"
           spacing={6}
           modifiers={[frame({ maxWidth: 300, maxHeight: 110, alignment: 'center' })]}>
-          <Image systemName="checkmark.circle" size={24} color="#66B98A" />
+          <Image
+            systemName={props.syncState === 'ready' ? 'checkmark.circle' : 'arrow.triangle.2.circlepath'}
+            size={24}
+            color={props.syncState === 'ready' ? '#66B98A' : DEFAULT_ACCENT}
+          />
           <Text
             modifiers={[
               font({ size: 13, weight: 'medium' }),
               foregroundStyle('#8A8D94'),
             ]}>
-            暂无待办
+            {emptyMessage}
           </Text>
         </VStack>
       ) : (
@@ -125,31 +138,65 @@ function TodoWidgetView(props: TodoWidgetSnapshot, environment: WidgetEnvironmen
 
 export const TodoWidget = createWidget<TodoWidgetSnapshot>('TodoWidget', TodoWidgetView);
 
-export function syncTodoWidget(tasks: WidgetSyncTask[]): void {
+export async function syncTodoWidget(
+  tasks: WidgetSyncTask[],
+  syncState: TodoWidgetSyncState = 'ready',
+): Promise<TodoWidgetSyncResult> {
   const activeTasks = tasks.filter(
     (task) => !task.completedAt && task.isCompleted !== true,
   );
-
-  TodoWidget.updateSnapshot({
+  const snapshot: TodoWidgetSnapshot = {
     total: activeTasks.length,
-    tasks: activeTasks.slice(0, 8).map((task) => ({
-      id: task.id,
-      title: task.title,
-      accent: task.color || DEFAULT_ACCENT,
-      starred: task.isStarred === true || task.starred === true,
-      dueLabel: task.dueLabel,
-    })),
+    tasks: activeTasks.slice(0, 8).map((task) => {
+      const dueLabel = task.dueLabel?.trim();
+      const color = task.color ?? '';
+      return {
+        id: String(task.id),
+        title: task.title.trim() || '未命名待办',
+        accent: /^#[0-9A-F]{6}$/i.test(color) ? color : DEFAULT_ACCENT,
+        starred: task.isStarred === true || task.starred === true,
+        ...(dueLabel ? { dueLabel } : {}),
+      };
+    }),
     updatedAt: new Date().toISOString(),
-  });
-  // updateSnapshot writes through the shared App Group defaults and asks
-  // WidgetKit to reload immediately.  On physical devices (especially iOS 16)
-  // that first reload can race the cross-process defaults flush, leaving the
-  // previous snapshot visible.  A short second reload makes the hand-off
-  // deterministic without changing the snapshot or scheduling background work.
-  TodoWidget.reload();
+    syncState,
+  };
+
+  let verified = false;
+  let lastError: unknown;
+  for (const delayMs of VERIFY_RETRY_DELAYS_MS) {
+    try {
+      TodoWidget.updateSnapshot(snapshot);
+      TodoWidget.reload();
+      await delay(delayMs);
+      const timeline = await TodoWidget.getTimeline();
+      verified = timeline.some(
+        (entry) =>
+          entry.props.updatedAt === snapshot.updatedAt &&
+          entry.props.total === snapshot.total &&
+          entry.props.tasks.length === snapshot.tasks.length,
+      );
+      if (verified) break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!verified) {
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('小组件数据写入后无法读取，请重新打开工作台重试。');
+  }
+
   if (deferredReload) clearTimeout(deferredReload);
   deferredReload = setTimeout(() => {
     deferredReload = null;
     TodoWidget.reload();
   }, DEFERRED_RELOAD_DELAY_MS);
+
+  return { total: snapshot.total, updatedAt: snapshot.updatedAt };
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

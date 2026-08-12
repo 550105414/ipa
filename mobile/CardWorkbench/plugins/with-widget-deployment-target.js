@@ -120,6 +120,7 @@ private struct CardWorkbenchWidgetModel {
   let total: Int
   let tasks: [CardWorkbenchWidgetTask]
   let hasSnapshot: Bool
+  let syncState: String
 
   static let preview = CardWorkbenchWidgetModel(
     total: 16,
@@ -153,7 +154,8 @@ private struct CardWorkbenchWidgetModel {
         dueLabel: "8月13日"
       ),
     ],
-    hasSnapshot: true
+    hasSnapshot: true,
+    syncState: "ready"
   )
 
   init(props: [String: Any]?) {
@@ -161,6 +163,7 @@ private struct CardWorkbenchWidgetModel {
       self.total = 0
       self.tasks = []
       self.hasSnapshot = false
+      self.syncState = "unpaired"
       return
     }
 
@@ -185,12 +188,19 @@ private struct CardWorkbenchWidgetModel {
     }
 
     self.hasSnapshot = true
+    self.syncState = props["syncState"] as? String ?? "ready"
   }
 
-  private init(total: Int, tasks: [CardWorkbenchWidgetTask], hasSnapshot: Bool) {
+  private init(
+    total: Int,
+    tasks: [CardWorkbenchWidgetTask],
+    hasSnapshot: Bool,
+    syncState: String
+  ) {
     self.total = total
     self.tasks = tasks
     self.hasSnapshot = hasSnapshot
+    self.syncState = syncState
   }
 }
 
@@ -231,6 +241,23 @@ private struct CardWorkbenchTodoWidgetView: View {
     !model.hasSnapshot && !redactionReasons.contains(.placeholder)
   }
 
+  private var emptyMessage: String {
+    if needsSync || displayedModel.syncState == "unpaired" {
+      return "打开工作台完成连接"
+    }
+    if displayedModel.syncState == "error" {
+      return "同步失败，打开工作台重试"
+    }
+    return "暂无待办"
+  }
+
+  private var emptySystemImage: String {
+    if needsSync || displayedModel.syncState != "ready" {
+      return "arrow.triangle.2.circlepath"
+    }
+    return "checkmark.circle"
+  }
+
   private var content: some View {
     VStack(alignment: .leading, spacing: 7) {
       HStack(spacing: 7) {
@@ -260,8 +287,8 @@ private struct CardWorkbenchTodoWidgetView: View {
         HStack {
           Spacer(minLength: 0)
           Label(
-            needsSync ? "打开工作台同步" : "暂无待办",
-            systemImage: needsSync ? "arrow.triangle.2.circlepath" : "checkmark.circle"
+            emptyMessage,
+            systemImage: emptySystemImage
           )
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(Color(uiColor: .secondaryLabel))

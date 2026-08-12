@@ -1,11 +1,12 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/bottom-navigation';
 import { FloatingAddButton } from '@/components/floating-add-button';
 import { ScreenState } from '@/components/screen-state';
+import { SymbolIcon } from '@/components/symbol-icon';
 import { TaskRow } from '@/components/task-row';
 import { getDueSection, type DueSection } from '@/lib/date';
 import { useTodos } from '@/providers/todo-provider';
@@ -71,7 +72,16 @@ function PlanSection({
 export default function PlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { tasks, isLoading, errorMessage, refresh, toggleCompleted, toggleStarred } = useTodos();
+  const {
+    tasks,
+    isLoading,
+    errorMessage,
+    syncStatus,
+    syncMessage,
+    refresh,
+    toggleCompleted,
+    toggleStarred,
+  } = useTodos();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const pendingTasks = tasks.filter((task) => !task.completedAt);
 
@@ -102,6 +112,40 @@ export default function PlanScreen() {
         <Text selectable style={styles.title}>
           计划
         </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="立即同步待办和桌面小组件"
+          disabled={syncStatus === 'syncing'}
+          onPress={() => void refresh()}
+          style={({ pressed }) => [
+            styles.syncBanner,
+            syncStatus === 'offline' || syncStatus === 'widget-error'
+              ? styles.syncBannerError
+              : null,
+            { opacity: pressed ? 0.62 : 1 },
+          ]}>
+          <SymbolIcon
+            name={
+              syncStatus === 'ready'
+                ? 'checkmark.circle.fill'
+                : syncStatus === 'offline' || syncStatus === 'widget-error'
+                  ? 'exclamationmark.arrow.triangle.2.circlepath'
+                  : 'arrow.triangle.2.circlepath'
+            }
+            color={
+              syncStatus === 'offline' || syncStatus === 'widget-error'
+                ? colors.red
+                : colors.blue
+            }
+            size={18}
+          />
+          <Text selectable numberOfLines={2} style={styles.syncMessage}>
+            {syncMessage ?? '正在检查待办与小组件…'}
+          </Text>
+          <Text style={styles.syncAction}>
+            {syncStatus === 'syncing' ? '同步中' : '刷新'}
+          </Text>
+        </Pressable>
         <ScreenState
           isLoading={isLoading}
           errorMessage={errorMessage}
@@ -148,6 +192,33 @@ const styles = StyleSheet.create({
     fontSize: 34,
     fontWeight: '800',
     letterSpacing: -1,
+  },
+  syncBanner: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: -12,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    backgroundColor: colors.blueTint,
+  },
+  syncBannerError: {
+    backgroundColor: '#FCECEF',
+  },
+  syncMessage: {
+    minWidth: 0,
+    flex: 1,
+    color: colors.secondaryLabel,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  syncAction: {
+    color: colors.blue,
+    fontSize: 12,
+    fontWeight: '700',
   },
   sections: {
     gap: 30,

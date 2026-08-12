@@ -16,44 +16,64 @@ const WIDGET_STORAGE_SYNC_MARKER = '// CardWorkbench synchronized App Group writ
 
 const NATIVE_WIDGET_SWIFT = String.raw`${NATIVE_WIDGET_MARKER}
 
-private struct TodoWidgetResilientTimelineProvider: TimelineProvider {
-  typealias Entry = WidgetsTimelineEntry
+private let cardWorkbenchWidgetGroupIdentifier = "group.com.xiaoke.salesworkspace"
+private let cardWorkbenchWidgetSnapshotFileName = "todo-widget-snapshot.json"
 
-  private let provider: WidgetsTimelineProvider
+private struct CardWorkbenchWidgetEntry: TimelineEntry {
+  let date: Date
+  let props: [String: Any]?
+}
+
+private struct TodoWidgetResilientTimelineProvider: TimelineProvider {
+  typealias Entry = CardWorkbenchWidgetEntry
+
+  private let name: String
 
   init(name: String) {
-    self.provider = WidgetsTimelineProvider(name: name)
+    self.name = name
   }
 
   func placeholder(in context: Context) -> Entry {
-    provider.placeholder(in: context)
+    CardWorkbenchWidgetEntry(date: Date(), props: nil)
   }
 
   func getSnapshot(
     in context: Context,
     completion: @escaping @Sendable (Entry) -> Void
   ) {
-    provider.getSnapshot(in: context, completion: completion)
+    completion(context.isPreview ? placeholder(in: context) : readSnapshotEntry())
   }
 
   func getTimeline(
     in context: Context,
     completion: @escaping @Sendable (Timeline<Entry>) -> Void
   ) {
-    let placeholderEntry = provider.placeholder(in: context)
+    completion(
+      Timeline(
+        entries: [readSnapshotEntry()],
+        policy: .after(Date().addingTimeInterval(15 * 60))
+      )
+    )
+  }
 
-    provider.getTimeline(in: context) { timeline in
-      if timeline.entries.isEmpty {
-        completion(
-          Timeline(
-            entries: [placeholderEntry],
-            policy: .after(Date().addingTimeInterval(15 * 60))
-          )
+  private func readSnapshotEntry() -> Entry {
+    guard
+      let containerURL = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: cardWorkbenchWidgetGroupIdentifier
+      ),
+      let data = try? Data(
+        contentsOf: containerURL.appendingPathComponent(
+          cardWorkbenchWidgetSnapshotFileName,
+          isDirectory: false
         )
-      } else {
-        completion(timeline)
-      }
+      ),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let props = object as? [String: Any]
+    else {
+      return CardWorkbenchWidgetEntry(date: Date(), props: nil)
     }
+
+    return CardWorkbenchWidgetEntry(date: Date(), props: props)
   }
 }
 
@@ -210,7 +230,7 @@ private struct CardWorkbenchTodoWidgetView: View {
 
   private let model: CardWorkbenchWidgetModel
 
-  init(entry: WidgetsTimelineEntry) {
+  init(entry: CardWorkbenchWidgetEntry) {
     self.model = CardWorkbenchWidgetModel(props: entry.props)
   }
 

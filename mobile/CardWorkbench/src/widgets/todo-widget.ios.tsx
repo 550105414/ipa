@@ -11,6 +11,8 @@ import {
 } from '@expo/ui/swift-ui/modifiers';
 import { createWidget, type WidgetEnvironment } from 'expo-widgets';
 
+import WidgetSnapshot from '@widget-snapshot';
+
 import type {
   TodoWidgetSnapshot,
   TodoWidgetSyncResult,
@@ -21,7 +23,6 @@ import type {
 
 const DEFAULT_ACCENT = '#3B78B9';
 const DEFERRED_RELOAD_DELAY_MS = 450;
-const VERIFY_RETRY_DELAYS_MS = [80, 180, 360] as const;
 let deferredReload: ReturnType<typeof setTimeout> | null = null;
 
 function TaskRow({ task }: { task: TodoWidgetTask }) {
@@ -162,41 +163,41 @@ export async function syncTodoWidget(
     syncState,
   };
 
-  let verified = false;
-  let lastError: unknown;
-  for (const delayMs of VERIFY_RETRY_DELAYS_MS) {
-    try {
-      TodoWidget.updateSnapshot(snapshot);
-      TodoWidget.reload();
-      await delay(delayMs);
-      const timeline = await TodoWidget.getTimeline();
-      verified = timeline.some(
-        (entry) =>
-          entry.props.updatedAt === snapshot.updatedAt &&
-          entry.props.total === snapshot.total &&
-          entry.props.tasks.length === snapshot.tasks.length,
-      );
-      if (verified) break;
-    } catch (error) {
-      lastError = error;
-    }
+  // The WidgetKit extension is a separate process. Persist one authoritative,
+  // atomic snapshot in the App Group and verify the native file before reload.
+  const encodedSnapshot = JSON.stringify(snapshot);
+  const writeResult = await WidgetSnapshot.writeSnapshotAsync(encodedSnapshot);
+  const persistedSnapshot = await WidgetSnapshot.readSnapshotAsync();
+  if (!persistedSnapshot) {
+    throw new Error('小组件共享快照写入后无法读取。');
   }
+  const persisted = JSON.parse(persistedSnapshot) as Partial<TodoWidgetSnapshot>;
+  if (
+    writeResult.updatedAt !== snapshot.updatedAt ||
+    writeResult.taskCount !== snapshot.tasks.length ||
+    persisted.updatedAt !== snapshot.updatedAt ||
+    persisted.total !== snapshot.total ||
+    persisted.tasks?.length !== snapshot.tasks.length
+  ) {
+    throw new Error('小组件共享快照校验失败。');
+  }
+  WidgetSnapshot.reload();
 
-  if (!verified) {
-    throw lastError instanceof Error
-      ? lastError
-      : new Error('小组件数据写入后无法读取，请重新打开工作台重试。');
+  // Keep the expo-widgets timeline as a compatibility fallback only. Failure
+  // here must not invalidate the verified App Group file used by WidgetKit.
+  try {
+    TodoWidget.updateSnapshot(snapshot);
+    TodoWidget.reload();
+  } catch {
+    // The native snapshot file is authoritative.
   }
 
   if (deferredReload) clearTimeout(deferredReload);
   deferredReload = setTimeout(() => {
     deferredReload = null;
     TodoWidget.reload();
+    WidgetSnapshot.reload();
   }, DEFERRED_RELOAD_DELAY_MS);
 
   return { total: snapshot.total, updatedAt: snapshot.updatedAt };
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

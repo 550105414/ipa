@@ -20,16 +20,16 @@ test('Expo iOS release configuration stays pinned', async () => {
   );
 
   assert.equal(appConfig.expo.name, '工作台');
-  assert.equal(appConfig.expo.version, '1.3.3');
+  assert.equal(appConfig.expo.version, '1.4.0');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '8');
+  assert.equal(appConfig.expo.ios.buildNumber, '9');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
-  assert.equal(packageJson.version, '1.3.3');
-  assert.equal(packageLock.version, '1.3.3');
-  assert.equal(packageLock.packages[''].version, '1.3.3');
+  assert.equal(packageJson.version, '1.4.0');
+  assert.equal(packageLock.version, '1.4.0');
+  assert.equal(packageLock.packages[''].version, '1.4.0');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
@@ -109,6 +109,10 @@ test('iOS widget implementation wins Metro platform resolution', async () => {
     new URL('plugins/with-widget-deployment-target.js', projectRoot),
     'utf8',
   );
+  const nativeSnapshotModule = await readFile(
+    new URL('modules/widget-snapshot/ios/CardWorkbenchWidgetSnapshotModule.swift', projectRoot),
+    'utf8',
+  );
   const iosWidgetSource = await readFile(iosTsx, 'utf8');
 
   await assert.rejects(access(genericTs));
@@ -117,8 +121,18 @@ test('iOS widget implementation wins Metro platform resolution', async () => {
   assert.match(iosWidgetSource, /createWidget<TodoWidgetSnapshot>\('TodoWidget'/);
   assert.match(iosWidgetSource, /TodoWidget\.updateSnapshot\(/);
   assert.match(iosWidgetSource, /TodoWidget\.reload\(\)/);
+  assert.match(iosWidgetSource, /WidgetSnapshot\.writeSnapshotAsync\(encodedSnapshot\)/);
+  assert.match(iosWidgetSource, /WidgetSnapshot\.readSnapshotAsync\(\)/);
+  assert.ok(
+    iosWidgetSource.indexOf('WidgetSnapshot.writeSnapshotAsync(encodedSnapshot)') <
+      iosWidgetSource.indexOf('TodoWidget.updateSnapshot(snapshot)'),
+  );
   assert.match(compatibilityPlugin, /CardWorkbenchTodoWidgetView/);
   assert.match(compatibilityPlugin, /TodoWidgetResilientTimelineProvider/);
+  assert.match(compatibilityPlugin, /CardWorkbenchWidgetEntry/);
+  assert.match(compatibilityPlugin, /FileManager\.default\.containerURL/);
+  assert.match(compatibilityPlugin, /todo-widget-snapshot\.json/);
+  assert.match(compatibilityPlugin, /JSONSerialization\.jsonObject/);
   assert.match(compatibilityPlugin, /ENABLE_DEBUG_DYLIB = 'NO'/);
   assert.match(compatibilityPlugin, /SWIFT_OPTIMIZATION_LEVEL = '\"-O\"'/);
   assert.match(compatibilityPlugin, /defaults\.synchronize\(\)/);
@@ -132,9 +146,13 @@ test('iOS widget implementation wins Metro platform resolution', async () => {
   assert.match(compatibilityPlugin, /打开工作台完成连接/);
   assert.match(compatibilityPlugin, /同步失败，打开工作台重试/);
   assert.match(iosWidgetSource, /DEFERRED_RELOAD_DELAY_MS/);
-  assert.match(iosWidgetSource, /VERIFY_RETRY_DELAYS_MS/);
-  assert.match(iosWidgetSource, /await TodoWidget\.getTimeline\(\)/);
-  assert.match(iosWidgetSource, /entry\.props\.updatedAt === snapshot\.updatedAt/);
+  assert.doesNotMatch(iosWidgetSource, /await TodoWidget\.getTimeline\(\)/);
+  assert.match(iosWidgetSource, /native snapshot file is authoritative/i);
+  assert.match(nativeSnapshotModule, /Name\("CardWorkbenchWidgetSnapshot"\)/);
+  assert.match(nativeSnapshotModule, /group\.com\.xiaoke\.salesworkspace/);
+  assert.match(nativeSnapshotModule, /data\.write\(to: fileURL, options: \[\.atomic\]\)/);
+  assert.match(nativeSnapshotModule, /completeUntilFirstUserAuthentication/);
+  assert.match(nativeSnapshotModule, /WidgetCenter\.shared\.reloadTimelines/);
 });
 
 test('TrollStore signing keeps the widget container entitlement extension-only', async () => {
@@ -195,7 +213,7 @@ test('paired task sync remains offline-first and updates the widget from merged 
     readFile(new URL('src/lib/task-sync.ts', projectRoot), 'utf8'),
   ]);
 
-  assert.match(databaseSource, /const DATABASE_VERSION = 4/);
+  assert.match(databaseSource, /const DATABASE_VERSION = 5/);
   assert.match(databaseSource, /remote_id TEXT/);
   assert.match(databaseSource, /sync_state TEXT NOT NULL DEFAULT 'pending'/);
   assert.match(providerSource, /cloud = await syncWorkspaceTasks\(database\)/);
@@ -260,7 +278,7 @@ test('fresh installs stay empty and legacy demo cleanup is all-or-nothing', asyn
     /const LEGACY_DEMO_TASKS:[\s\S]*?= \[([\s\S]*?)\n\];/,
   );
 
-  assert.match(databaseSource, /const DATABASE_VERSION = 4/);
+  assert.match(databaseSource, /const DATABASE_VERSION = 5/);
   assert.match(databaseSource, /SELECT '订购桶装水',[\s\S]*?WHERE 0;/);
   assert.ok(signatureMatch);
   const ids = [...signatureMatch[1].matchAll(/\bid: (\d+)/g)].map((match) => Number(match[1]));
@@ -271,4 +289,28 @@ test('fresh installs stay empty and legacy demo cleanup is all-or-nothing', asyn
   assert.match(databaseSource, /row\.sync_state === 'pending'/);
   assert.match(databaseSource, /if \(!isExactUntouchedSeed\) return;/);
   assert.match(databaseSource, /DELETE FROM todo_items[\s\S]*?id BETWEEN 1 AND 23/);
+});
+
+test('password vault encrypts secrets with a device-only Keychain key', async () => {
+  const [database, vaultLibrary, nativeModule, listScreen, form] = await Promise.all([
+    readFile(new URL('src/lib/database.ts', projectRoot), 'utf8'),
+    readFile(new URL('src/lib/credential-vault.ts', projectRoot), 'utf8'),
+    readFile(new URL('modules/credential-vault/ios/CardWorkbenchCredentialVaultModule.swift', projectRoot), 'utf8'),
+    readFile(new URL('src/app/passwords.tsx', projectRoot), 'utf8'),
+    readFile(new URL('src/components/credential-form.tsx', projectRoot), 'utf8'),
+  ]);
+
+  assert.match(database, /CREATE TABLE IF NOT EXISTS credential_entries/);
+  assert.match(database, /encrypted_payload TEXT NOT NULL/);
+  assert.doesNotMatch(database, /password TEXT/);
+  assert.match(vaultLibrary, /CredentialVault\.encryptAsync\(id, plaintext\)/);
+  assert.match(vaultLibrary, /CredentialVault\.decryptAsync/);
+  assert.match(nativeModule, /AES\.GCM\.seal/);
+  assert.match(nativeModule, /AES\.GCM\.open/);
+  assert.match(nativeModule, /authenticating: aad/);
+  assert.match(nativeModule, /kSecAttrAccessibleWhenUnlockedThisDeviceOnly/);
+  assert.match(nativeModule, /SecRandomCopyBytes/);
+  assert.match(listScreen, /搜索平台、账号、邮箱或标签/);
+  assert.match(form, /generateStrongPassword/);
+  assert.match(form, /Face ID 解锁 · Keychain 密钥 · AES-GCM 加密/);
 });

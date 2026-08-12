@@ -167,7 +167,9 @@ export function TodoProvider({ children }: PropsWithChildren) {
           setSyncMessage('尚未连接电脑工作台，待办目前仅保存在本机。');
         } else {
           setSyncStatus('ready');
-          setSyncMessage(`已同步：云端 ${cloud.remoteCount} 条，小组件 ${local.widgetCount} 条`);
+          setSyncMessage(
+            `已同步：云端 ${cloud.remoteCount} 条，本机 ${local.localCount} 条，小组件 ${local.widgetCount} 条`,
+          );
         }
 
         if (options.requireCloud && (cloudError || !cloud.paired)) {

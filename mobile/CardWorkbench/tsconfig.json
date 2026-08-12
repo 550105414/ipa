@@ -8,6 +8,12 @@
       ],
       "@/assets/*": [
         "./assets/*"
+      ],
+      "@widget-snapshot": [
+        "./modules/widget-snapshot"
+      ],
+      "@credential-vault": [
+        "./modules/credential-vault"
       ]
     }
   },

@@ -56,6 +56,34 @@ export default function RootLayout() {
               options={{ headerShown: true, title: '导出资料', headerShadowVisible: false }}
             />
             <Stack.Screen
+              name="passwords"
+              options={{ headerShown: true, title: '密码库', headerShadowVisible: false }}
+            />
+            <Stack.Screen
+              name="credential/[id]"
+              options={{ headerShown: true, title: '账号资料', headerShadowVisible: false }}
+            />
+            <Stack.Screen
+              name="credential/[id]/edit"
+              options={{
+                headerShown: true,
+                title: '编辑账号',
+                headerShadowVisible: false,
+                presentation: 'modal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+            <Stack.Screen
+              name="credential/new"
+              options={{
+                headerShown: true,
+                title: '新增账号',
+                headerShadowVisible: false,
+                presentation: 'modal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+            <Stack.Screen
               name="pair"
               options={{ headerShown: true, title: '连接工作台', headerShadowVisible: false }}
             />

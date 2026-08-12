@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { NewTodoInput, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
 
-const DATABASE_VERSION = 4;
+const DATABASE_VERSION = 5;
 
 type CategoryRow = {
   id: string;
@@ -216,6 +216,43 @@ export async function migrateDatabase(database: SQLiteDatabase) {
 
   if (currentVersion < 4) {
     await removeExactLegacyDemoTasks(database);
+  }
+
+  if (currentVersion < 5) {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS credential_categories (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        color TEXT NOT NULL,
+        tint TEXT NOT NULL,
+        icon TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS credential_entries (
+        id TEXT PRIMARY KEY NOT NULL,
+        platform_name TEXT NOT NULL,
+        category_id TEXT NOT NULL REFERENCES credential_categories(id),
+        icon TEXT NOT NULL DEFAULT 'key.fill',
+        encrypted_payload TEXT NOT NULL,
+        key_version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS credential_entries_category_index
+      ON credential_entries(category_id);
+      CREATE INDEX IF NOT EXISTS credential_entries_platform_index
+      ON credential_entries(platform_name);
+
+      INSERT OR IGNORE INTO credential_categories (id, name, color, tint, icon, sort_order) VALUES
+        ('social', '社交', '#E9548F', '#FCEAF2', 'message.fill', 1),
+        ('games', '游戏', '#755AD6', '#F0ECFC', 'gamecontroller.fill', 2),
+        ('banking', '银行', '#3B82D0', '#EAF3FC', 'building.columns.fill', 3),
+        ('work', '工作', '#20A878', '#E7F7F1', 'briefcase.fill', 4),
+        ('shopping', '购物', '#D39B43', '#FBF3E5', 'cart.fill', 5),
+        ('other', '其他', '#8D7B63', '#F2EEE9', 'folder.fill', 6);
+    `);
   }
 
   await database.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);

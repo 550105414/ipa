@@ -189,6 +189,20 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        <Pressable
+          accessibilityLabel="打开本机加密密码库"
+          accessibilityRole="button"
+          onPress={() => router.push('/passwords' as never)}
+          style={({ pressed }) => [styles.passwordVault, { opacity: pressed ? 0.62 : 1 }]}>
+          <View style={styles.passwordVaultCopy}>
+            <Text selectable style={styles.passwordVaultTitle}>密码库</Text>
+            <Text selectable style={styles.passwordVaultSubtitle}>分类、搜索、强密码生成与 Face ID 保护</Text>
+          </View>
+          <View style={styles.passwordVaultAction}>
+            <SymbolIcon name="key.fill" color="#3A2B16" size={22} />
+          </View>
+        </Pressable>
+
         <ScreenState
           isLoading={isLoading}
           errorMessage={errorMessage}
@@ -374,6 +388,41 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.separator,
     paddingTop: 12,
+  },
+  passwordVault: {
+    minHeight: 94,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 17,
+    marginBottom: 16,
+    borderRadius: 24,
+    borderCurve: 'continuous',
+    backgroundColor: '#FFC229',
+    boxShadow: '0 6px 20px rgba(203, 145, 23, 0.15)',
+  },
+  passwordVaultCopy: {
+    minWidth: 0,
+    flex: 1,
+    gap: 4,
+  },
+  passwordVaultTitle: {
+    color: '#2C2113',
+    fontSize: 21,
+    fontWeight: '900',
+  },
+  passwordVaultSubtitle: {
+    color: '#73551A',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  passwordVaultAction: {
+    width: 50,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.40)',
   },
   customerAction: {
     flex: 1,

@@ -64,9 +64,14 @@ export function resolveEditedDueAt(
   originalDueAt: string | null,
   selectedDate: Date | null,
   didChangeDate: boolean,
+  includeTime = false,
 ): string | null {
   if (!didChangeDate) return originalDueAt;
-  return selectedDate ? toLocalDateKey(selectedDate) : null;
+  if (!selectedDate || !Number.isFinite(selectedDate.getTime())) return null;
+  if (!includeTime) return toLocalDateKey(selectedDate);
+  const date = new Date(selectedDate);
+  date.setSeconds(0, 0);
+  return date.toISOString();
 }
 
 export function toLocalDateKey(date: Date) {

@@ -1,8 +1,24 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { NewTodoInput, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
+import { parseTodoDueDate } from '@/lib/date';
+import { getNextRecurringDueAt } from '@/lib/task-recurrence';
+import type { NewTodoInput, RepeatRule, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
 
-const DATABASE_VERSION = 5;
+const DATABASE_VERSION = 6;
+
+// Short local writes, including completion + generation of its next occurrence,
+// run in order. An exclusive transaction never races another local mutation.
+const localWrites = new WeakMap<SQLiteDatabase, Promise<unknown>>();
+
+function enqueueLocalWrite<T>(database: SQLiteDatabase, operation: () => Promise<T>): Promise<T> {
+  const previous = localWrites.get(database) ?? Promise.resolve();
+  const pending = previous.catch(() => undefined).then(operation);
+  localWrites.set(database, pending);
+  void pending.finally(() => {
+    if (localWrites.get(database) === pending) localWrites.delete(database);
+  }).catch(() => undefined);
+  return pending;
+}
 
 type CategoryRow = {
   id: string;
@@ -25,6 +41,7 @@ type TodoRow = {
   category_icon: string;
   is_starred: number;
   due_at: string | null;
+  repeat_rule: RepeatRule;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -255,6 +272,26 @@ export async function migrateDatabase(database: SQLiteDatabase) {
     `);
   }
 
+  if (currentVersion < 6) {
+    // Each ALTER is guarded so an interrupted upgrade can safely continue.
+    // Existing rows retain their content and default to non-repeating tasks.
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(todo_items)');
+    const columnNames = new Set(columns.map((column) => column.name));
+    if (!columnNames.has('repeat_rule')) {
+      await database.execAsync(`ALTER TABLE todo_items ADD COLUMN repeat_rule TEXT NOT NULL
+        DEFAULT 'none' CHECK (repeat_rule IN ('none', 'daily', 'weekly', 'monthly'));`);
+    }
+    if (!columnNames.has('recurrence_anchor_due_at')) {
+      await database.execAsync('ALTER TABLE todo_items ADD COLUMN recurrence_anchor_due_at TEXT;');
+    }
+    if (!columnNames.has('recurrence_parent_id')) {
+      // No FK: deleting a cloud-backed history row must not delete its next task.
+      await database.execAsync('ALTER TABLE todo_items ADD COLUMN recurrence_parent_id INTEGER;');
+    }
+    await database.execAsync(`CREATE UNIQUE INDEX IF NOT EXISTS todo_items_recurrence_parent_index
+      ON todo_items(recurrence_parent_id) WHERE recurrence_parent_id IS NOT NULL;`);
+  }
+
   await database.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
 }
 
@@ -344,6 +381,7 @@ export async function getTasks(database: SQLiteDatabase): Promise<TodoTask[]> {
       category.icon AS category_icon,
       task.is_starred,
       task.due_at,
+      task.repeat_rule,
       task.completed_at,
       task.created_at,
       task.updated_at
@@ -370,6 +408,7 @@ export async function getTasks(database: SQLiteDatabase): Promise<TodoTask[]> {
     categoryIcon: row.category_icon,
     isStarred: row.is_starred === 1,
     dueAt: row.due_at,
+    repeatRule: row.repeat_rule,
     completedAt: row.completed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -377,29 +416,41 @@ export async function getTasks(database: SQLiteDatabase): Promise<TodoTask[]> {
 }
 
 export async function insertTask(database: SQLiteDatabase, input: NewTodoInput) {
+  const repeatRule = validateRepeatRule(input.repeatRule ?? 'none', input.dueAt);
   const updatedAt = new Date().toISOString();
-  return database.runAsync(
+  return enqueueLocalWrite(database, () => database.runAsync(
     `INSERT INTO todo_items
-      (title, notes, category_id, is_starred, due_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+      (title, notes, category_id, is_starred, due_at, repeat_rule, recurrence_anchor_due_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     input.title.trim(),
     input.notes?.trim() || null,
     input.categoryId,
     input.isStarred ? 1 : 0,
     input.dueAt,
+    repeatRule,
+    repeatRule === 'none' ? null : input.dueAt,
     updatedAt,
-  );
+  ));
 }
 
 export async function updateTask(database: SQLiteDatabase, input: UpdateTodoInput) {
   const updatedAt = new Date().toISOString();
-  await database.runAsync(
+  // An omitted repeatRule preserves the existing local rule for older callers.
+  if (input.repeatRule !== undefined) validateRepeatRule(input.repeatRule, input.dueAt);
+  await enqueueLocalWrite(database, () => database.runAsync(
     `UPDATE todo_items
      SET title = ?,
          notes = ?,
          category_id = ?,
          is_starred = ?,
          due_at = ?,
+         recurrence_anchor_due_at = CASE
+           WHEN COALESCE(?, repeat_rule) = 'none' OR ? IS NULL THEN NULL
+           WHEN due_at IS NOT ? OR repeat_rule IS NOT COALESCE(?, repeat_rule)
+             THEN ?
+           ELSE COALESCE(recurrence_anchor_due_at, ?)
+         END,
+         repeat_rule = CASE WHEN ? IS NULL THEN 'none' ELSE COALESCE(?, repeat_rule) END,
          sync_state = 'pending',
          updated_at = ?
      WHERE id = ?`,
@@ -408,35 +459,79 @@ export async function updateTask(database: SQLiteDatabase, input: UpdateTodoInpu
     input.categoryId,
     input.isStarred ? 1 : 0,
     input.dueAt,
+    input.repeatRule ?? null,
+    input.dueAt,
+    input.dueAt,
+    input.repeatRule ?? null,
+    input.dueAt,
+    input.dueAt,
+    input.dueAt,
+    input.repeatRule ?? null,
     updatedAt,
     input.id,
-  );
+  ));
 }
 
 export async function toggleTaskStar(database: SQLiteDatabase, id: number) {
   const updatedAt = new Date().toISOString();
-  await database.runAsync(
+  await enqueueLocalWrite(database, () => database.runAsync(
     `UPDATE todo_items
      SET is_starred = CASE is_starred WHEN 1 THEN 0 ELSE 1 END,
          updated_at = ?
      WHERE id = ?`,
     updatedAt,
     id,
-  );
+  ));
 }
 
 export async function toggleTaskCompletion(database: SQLiteDatabase, id: number) {
-  const updatedAt = new Date().toISOString();
-  await database.runAsync(
-    `UPDATE todo_items
-     SET completed_at = CASE
-       WHEN completed_at IS NULL THEN CURRENT_TIMESTAMP
-       ELSE NULL
-     END,
-     sync_state = 'pending',
-     updated_at = ?
-     WHERE id = ?`,
-    updatedAt,
-    id,
-  );
+  await enqueueLocalWrite(database, () => database.withExclusiveTransactionAsync(async (transaction) => {
+    await transaction.execAsync('PRAGMA busy_timeout = 5000;');
+    // Take the write lock before reading so a cloud write cannot invalidate the
+    // snapshot between reading a task and updating/generating its occurrence.
+    await transaction.runAsync('UPDATE todo_items SET id = id WHERE id = ?', id);
+    const task = await transaction.getFirstAsync<{
+      title: string;
+      notes: string | null;
+      label: string | null;
+      category_id: string;
+      is_starred: number;
+      due_at: string | null;
+      completed_at: string | null;
+      repeat_rule: RepeatRule;
+      recurrence_anchor_due_at: string | null;
+    }>('SELECT * FROM todo_items WHERE id = ?', id);
+    if (!task) return;
+
+    const now = new Date();
+    const updatedAt = now.toISOString();
+    const completing = task.completed_at === null;
+    await transaction.runAsync(`UPDATE todo_items
+      SET completed_at = ?, sync_state = 'pending', updated_at = ? WHERE id = ?`,
+    completing ? updatedAt : null, updatedAt, id);
+    if (!completing || task.repeat_rule === 'none') return;
+
+    const nextDueAt = getNextRecurringDueAt(
+      task.due_at, task.repeat_rule, now, task.recurrence_anchor_due_at ?? task.due_at,
+    );
+    if (!nextDueAt) return;
+    // A single parent can generate only one child. Undo/re-complete leaves that
+    // existing child untouched, even if the user has edited or completed it.
+    await transaction.runAsync(`INSERT OR IGNORE INTO todo_items
+      (title, notes, label, category_id, is_starred, due_at, repeat_rule,
+       recurrence_anchor_due_at, recurrence_parent_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    task.title, task.notes, task.label, task.category_id, task.is_starred, nextDueAt,
+    task.repeat_rule, task.recurrence_anchor_due_at ?? task.due_at, id, updatedAt, updatedAt);
+  }));
+}
+
+function validateRepeatRule(repeatRule: RepeatRule, dueAt: string | null): RepeatRule {
+  if (!['none', 'daily', 'weekly', 'monthly'].includes(repeatRule)) {
+    throw new Error('不支持的重复规则');
+  }
+  if (repeatRule !== 'none' && !parseTodoDueDate(dueAt)) {
+    throw new Error('重复待办需要先设置有效日期');
+  }
+  return repeatRule;
 }

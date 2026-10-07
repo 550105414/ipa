@@ -1,10 +1,11 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/bottom-navigation';
 import { FloatingAddButton } from '@/components/floating-add-button';
+import { ReminderStatusCard } from '@/components/reminder-status-card';
 import { ScreenState } from '@/components/screen-state';
 import { SymbolIcon } from '@/components/symbol-icon';
 import { TaskRow } from '@/components/task-row';
@@ -78,6 +79,10 @@ export default function PlanScreen() {
     errorMessage,
     syncStatus,
     syncMessage,
+    syncMetrics,
+    widgetStatus,
+    widgetUpdatedAt,
+    widgetError,
     refresh,
     toggleCompleted,
     toggleStarred,
@@ -89,6 +94,8 @@ export default function PlanScreen() {
     setIsRefreshing(true);
     try {
       await refresh();
+    } catch (error) {
+      Alert.alert('刷新失败', error instanceof Error ? error.message : '本机数据仍然保留，请稍后重试。');
     } finally {
       setIsRefreshing(false);
     }
@@ -116,7 +123,7 @@ export default function PlanScreen() {
           accessibilityRole="button"
           accessibilityLabel="立即同步待办和桌面小组件"
           disabled={syncStatus === 'syncing'}
-          onPress={() => void refresh()}
+          onPress={() => void handleRefresh()}
           style={({ pressed }) => [
             styles.syncBanner,
             syncStatus === 'offline' || syncStatus === 'widget-error'
@@ -146,10 +153,25 @@ export default function PlanScreen() {
             {syncStatus === 'syncing' ? '同步中' : '刷新'}
           </Text>
         </Pressable>
+        <View style={styles.widgetFeedback}>
+          <View style={styles.widgetFeedbackHeader}>
+            <SymbolIcon name="rectangle.on.rectangle" color={widgetStatus === 'error' ? colors.red : colors.blue} size={17} />
+            <Text style={styles.widgetFeedbackTitle}>
+              {widgetStatus === 'updating' ? '小组件数据更新中' : widgetStatus === 'error' ? '小组件数据写入失败' : widgetUpdatedAt ? '小组件数据已更新' : '桌面小组件'}
+            </Text>
+          </View>
+          <Text style={styles.widgetFeedbackCopy}>
+            {widgetError ?? (widgetUpdatedAt
+              ? `最近写入 ${new Date(widgetUpdatedAt).toLocaleTimeString('zh-CN', { hour12: false })} · 当前到期 ${syncMetrics.widgetCount} 条。未到时间的待办保留在 App 中，到时间才显示。`
+              : '添加、编辑和完成待办后会自动更新小组件数据。')}
+          </Text>
+          <Text style={styles.widgetFeedbackCopy}>数据写入成功不代表桌面已重绘；实际刷新由 iOS 调度。</Text>
+        </View>
+        <ReminderStatusCard />
         <ScreenState
           isLoading={isLoading}
           errorMessage={errorMessage}
-          onRetry={() => void refresh()}
+          onRetry={() => void handleRefresh()}
         />
         {!isLoading && !errorMessage ? (
           <View style={styles.sections}>
@@ -219,6 +241,28 @@ const styles = StyleSheet.create({
     color: colors.blue,
     fontSize: 12,
     fontWeight: '700',
+  },
+  widgetFeedback: {
+    gap: 7,
+    padding: 14,
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    backgroundColor: colors.card,
+  },
+  widgetFeedbackHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  widgetFeedbackTitle: {
+    color: colors.label,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  widgetFeedbackCopy: {
+    color: colors.secondaryLabel,
+    fontSize: 12,
+    lineHeight: 18,
   },
   sections: {
     gap: 30,

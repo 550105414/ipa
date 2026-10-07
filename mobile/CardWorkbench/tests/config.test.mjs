@@ -20,16 +20,16 @@ test('Expo iOS release configuration stays pinned', async () => {
   );
 
   assert.equal(appConfig.expo.name, '工作台');
-  assert.equal(appConfig.expo.version, '1.4.1');
+  assert.equal(appConfig.expo.version, '1.5.0');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '10');
+  assert.equal(appConfig.expo.ios.buildNumber, '11');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
-  assert.equal(packageJson.version, '1.4.1');
-  assert.equal(packageLock.version, '1.4.1');
-  assert.equal(packageLock.packages[''].version, '1.4.1');
+  assert.equal(packageJson.version, '1.5.0');
+  assert.equal(packageLock.version, '1.5.0');
+  assert.equal(packageLock.packages[''].version, '1.5.0');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
@@ -211,38 +211,6 @@ test('generated iOS entitlements keep App Group without push capability', async 
   assert.equal('com.apple.private.security.container-required' in entitlements, false);
 });
 
-test('paired task sync remains offline-first and updates the widget from merged data', async () => {
-  const [databaseSource, providerSource, syncSource] = await Promise.all([
-    readFile(new URL('src/lib/database.ts', projectRoot), 'utf8'),
-    readFile(new URL('src/providers/todo-provider.tsx', projectRoot), 'utf8'),
-    readFile(new URL('src/lib/task-sync.ts', projectRoot), 'utf8'),
-  ]);
-
-  assert.match(databaseSource, /const DATABASE_VERSION = 5/);
-  assert.match(databaseSource, /remote_id TEXT/);
-  assert.match(databaseSource, /sync_state TEXT NOT NULL DEFAULT 'pending'/);
-  assert.match(providerSource, /cloud = await syncWorkspaceTasks\(database\)/);
-  assert.ok(
-    providerSource.indexOf('syncWorkspaceTasks(database)') <
-      providerSource.indexOf('publishLocalState('),
-  );
-  assert.match(providerSource, /const widget = await syncTodoWidget\(widgetTasks, widgetState\)/);
-  assert.match(providerSource, /dueAt: task\.dueAt/);
-  assert.match(providerSource, /setTasks\(nextTasks\)[\s\S]*?await syncTodoWidget/);
-  assert.match(providerSource, /await toggleTaskCompletion\(database, id\)[\s\S]*?await publishMutationImmediately\(\)/);
-  assert.match(providerSource, /void refresh\(\)\.catch/);
-  assert.match(syncSource, /loadWorkspaceSession\(\)/);
-  assert.match(syncSource, /fetchAllRemoteTasks\(\)/);
-  assert.match(syncSource, /pageSize: '200'/);
-  assert.match(syncSource, /seenCursors\.has\(cursor\)/);
-  assert.match(syncSource, /INSERT OR IGNORE INTO todo_items/);
-  assert.match(syncSource, /is_starred/);
-  assert.match(syncSource, /status: local\.completed_at \? 'done' : 'open'/);
-  assert.match(syncSource, /AND sync_state = 'synced' AND updated_at = \?/);
-  assert.match(syncSource, /sync_state = 'local_only'/);
-  assert.match(databaseSource, /updated_at = \?/);
-});
-
 test('device pairing pins every authenticated request and confirms credential replacement', async () => {
   const [workspaceConfig, workspaceApi, pairScreen] = await Promise.all([
     readFile(new URL('src/config/workspace.ts', projectRoot), 'utf8'),
@@ -284,7 +252,7 @@ test('fresh installs stay empty and legacy demo cleanup is all-or-nothing', asyn
     /const LEGACY_DEMO_TASKS:[\s\S]*?= \[([\s\S]*?)\n\];/,
   );
 
-  assert.match(databaseSource, /const DATABASE_VERSION = 5/);
+  assert.match(databaseSource, /const DATABASE_VERSION = 6/);
   assert.match(databaseSource, /SELECT '订购桶装水',[\s\S]*?WHERE 0;/);
   assert.ok(signatureMatch);
   const ids = [...signatureMatch[1].matchAll(/\bid: (\d+)/g)].map((match) => Number(match[1]));

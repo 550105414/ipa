@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { localDueToRemote, remoteDueToLocal } from '@/lib/date';
+import { createSyncCoordinator } from '@/lib/sync-coordinator';
 import { loadWorkspaceSession, workspaceJson } from '@/lib/workspace-api';
 
 type RemoteTask = {
@@ -31,7 +32,8 @@ export type TaskSyncResult = {
   remoteCount: number;
 };
 
-const syncByDatabase = new WeakMap<SQLiteDatabase, Promise<TaskSyncResult>>();
+const syncByDatabase = new WeakMap<SQLiteDatabase, () => Promise<TaskSyncResult>>();
+const TASK_REQUEST_TIMEOUT_MS = 15_000;
 
 /**
  * Reconciles the offline SQLite task list with the paired workspace.
@@ -39,33 +41,32 @@ const syncByDatabase = new WeakMap<SQLiteDatabase, Promise<TaskSyncResult>>();
  * remain device-local because the current cloud task model does not expose them.
  */
 export async function syncWorkspaceTasks(database: SQLiteDatabase): Promise<TaskSyncResult> {
-  const running = syncByDatabase.get(database);
-  if (running) return running;
-
-  const operation = performSync(database).finally(() => {
-    if (syncByDatabase.get(database) === operation) syncByDatabase.delete(database);
-  });
-  syncByDatabase.set(database, operation);
-  return operation;
+  let requestSync = syncByDatabase.get(database);
+  if (!requestSync) {
+    requestSync = createSyncCoordinator(() => performSync(database));
+    syncByDatabase.set(database, requestSync);
+  }
+  return requestSync();
 }
 
 async function performSync(database: SQLiteDatabase): Promise<TaskSyncResult> {
   const session = await loadWorkspaceSession();
   if (!session) return { paired: false, pulled: 0, pushed: 0, remoteCount: 0 };
 
-  const [items, localRows] = await Promise.all([
-    fetchAllRemoteTasks(),
-    database.getAllAsync<LocalSyncRow>(`
+  const items = await fetchAllRemoteTasks();
+  // Read SQLite after the slow request, rather than reconciling a snapshot
+  // captured before the user edited a task during that request.
+  const localRows = await database.getAllAsync<LocalSyncRow>(`
       SELECT id, title, due_at, completed_at, remote_id, sync_state, updated_at
       FROM todo_items
       ORDER BY id ASC
-    `),
-  ]);
+    `);
 
   const remoteById = new Map(items.map((task) => [task.id, task]));
   const claimedRemoteIds = new Set<string>();
   let pulled = 0;
   let pushed = 0;
+  let createdCount = 0;
 
   // First reconcile rows that already have a stable cloud identity.
   for (const local of localRows) {
@@ -79,7 +80,7 @@ async function performSync(database: SQLiteDatabase): Promise<TaskSyncResult> {
     claimedRemoteIds.add(remote.id);
     if (local.sync_state === 'pending') {
       const updated = await updateRemoteTask(local);
-      await markSynced(database, local.id, updated.id, local.updated_at);
+      await markSynced(database, local, updated.id);
       pushed += 1;
     } else {
       if (await applyRemoteTask(database, local, remote)) pulled += 1;
@@ -114,8 +115,9 @@ async function performSync(database: SQLiteDatabase): Promise<TaskSyncResult> {
 
     const created = await createRemoteTask(local);
     claimedRemoteIds.add(created.id);
-    await markSynced(database, local.id, created.id, local.updated_at);
+    await markSynced(database, local, created.id);
     pushed += 1;
+    createdCount += 1;
   }
 
   // Import cloud-only tasks. Re-running this is idempotent because remote_id is
@@ -137,11 +139,11 @@ async function performSync(database: SQLiteDatabase): Promise<TaskSyncResult> {
     pulled += 1;
   }
 
-  return { paired: true, pulled, pushed, remoteCount: items.length };
+  return { paired: true, pulled, pushed, remoteCount: items.length + createdCount };
 }
 
 async function createRemoteTask(local: LocalSyncRow): Promise<RemoteTask> {
-  const { task } = await workspaceJson<{ task: RemoteTask }>('/api/tasks', {
+  const { task } = await taskJson<{ task: RemoteTask }>('/api/tasks', {
     method: 'POST',
     body: JSON.stringify({
       title: local.title,
@@ -154,7 +156,7 @@ async function createRemoteTask(local: LocalSyncRow): Promise<RemoteTask> {
 
 async function updateRemoteTask(local: LocalSyncRow): Promise<RemoteTask> {
   if (!local.remote_id) throw new Error('云端待办缺少标识');
-  const { task } = await workspaceJson<{ task: RemoteTask }>(
+  const { task } = await taskJson<{ task: RemoteTask }>(
     `/api/tasks/${encodeURIComponent(local.remote_id)}`,
     {
       method: 'PATCH',
@@ -176,7 +178,7 @@ async function fetchAllRemoteTasks(): Promise<RemoteTask[]> {
   do {
     const search = new URLSearchParams({ pageSize: '200' });
     if (cursor) search.set('cursor', cursor);
-    const page = await workspaceJson<{ items: RemoteTask[]; nextCursor: string | null }>(
+    const page = await taskJson<{ items: RemoteTask[]; nextCursor: string | null }>(
       `/api/tasks?${search.toString()}`,
     );
     tasks.push(...page.items);
@@ -190,21 +192,36 @@ async function fetchAllRemoteTasks(): Promise<RemoteTask[]> {
   return tasks;
 }
 
+async function taskJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TASK_REQUEST_TIMEOUT_MS);
+  try {
+    return await workspaceJson<T>(path, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function markSynced(
   database: SQLiteDatabase,
-  localId: number,
+  local: LocalSyncRow,
   remoteId: string,
-  expectedUpdatedAt: string,
 ) {
   await database.runAsync(
     `UPDATE todo_items
      SET remote_id = ?,
-         sync_state = CASE WHEN updated_at = ? THEN 'synced' ELSE 'pending' END,
+         sync_state = CASE
+           WHEN updated_at = ? AND title = ? AND due_at IS ? AND completed_at IS ?
+           THEN 'synced' ELSE 'pending' END,
          last_synced_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
+     WHERE id = ? AND (remote_id IS NULL OR remote_id = ?)`,
     remoteId,
-    expectedUpdatedAt,
-    localId,
+    local.updated_at,
+    local.title,
+    local.due_at,
+    local.completed_at,
+    local.id,
+    remoteId,
   );
 }
 
@@ -213,23 +230,35 @@ async function applyRemoteTask(
   local: LocalSyncRow,
   remote: RemoteTask,
 ): Promise<boolean> {
+  const dueAt = preserveEquivalentLocalDue(local.due_at, remote.due_at);
   const result = await database.runAsync(
     `UPDATE todo_items
      SET title = ?,
          label = COALESCE(?, label),
          due_at = ?,
+         recurrence_anchor_due_at = CASE
+           WHEN repeat_rule != 'none' AND due_at IS NOT ? THEN ?
+           ELSE recurrence_anchor_due_at END,
+         repeat_rule = CASE WHEN ? IS NULL THEN 'none' ELSE repeat_rule END,
          completed_at = ?,
          remote_id = ?,
          sync_state = 'synced',
          last_synced_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND sync_state = 'synced' AND updated_at = ?`,
+     WHERE id = ? AND sync_state = 'synced' AND updated_at = ?
+       AND title = ? AND due_at IS ? AND completed_at IS ?`,
     remote.title,
     remote.customer_name ? `客户：${remote.customer_name}` : null,
-    remoteDueToLocal(remote.due_at),
+    dueAt,
+    dueAt,
+    dueAt,
+    dueAt,
     remote.status === 'done' ? remote.completed_at ?? remote.created_at : null,
     remote.id,
     local.id,
     local.updated_at,
+    local.title,
+    local.due_at,
+    local.completed_at,
   );
   return result.changes > 0;
 }
@@ -239,38 +268,52 @@ async function attachMatchedRemoteTask(
   local: LocalSyncRow,
   remote: RemoteTask,
 ): Promise<boolean> {
-  const result = await database.runAsync(
-    `UPDATE todo_items
-     SET title = CASE WHEN updated_at = ? THEN ? ELSE title END,
-         label = CASE WHEN updated_at = ? THEN COALESCE(?, label) ELSE label END,
-         due_at = CASE WHEN updated_at = ? THEN ? ELSE due_at END,
-         completed_at = CASE WHEN updated_at = ? THEN ? ELSE completed_at END,
-         remote_id = ?,
-         sync_state = CASE WHEN updated_at = ? THEN 'synced' ELSE 'pending' END,
-         last_synced_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND remote_id IS NULL`,
-    local.updated_at,
-    remote.title,
-    local.updated_at,
-    remote.customer_name ? `客户：${remote.customer_name}` : null,
-    local.updated_at,
-    remoteDueToLocal(remote.due_at),
-    local.updated_at,
-    remote.status === 'done' ? remote.completed_at ?? remote.created_at : null,
+  const dueAt = preserveEquivalentLocalDue(local.due_at, remote.due_at);
+  // Keep the stable cloud identity even if a local edit raced the first
+  // matching request. The guarded second update must not overwrite that edit.
+  await database.runAsync(
+    'UPDATE todo_items SET remote_id = ? WHERE id = ? AND remote_id IS NULL',
     remote.id,
-    local.updated_at,
     local.id,
   );
+  const result = await database.runAsync(
+    `UPDATE todo_items
+     SET label = COALESCE(?, label),
+         due_at = ?,
+         sync_state = 'synced',
+         last_synced_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND remote_id = ? AND updated_at = ?
+       AND title = ? AND due_at IS ? AND completed_at IS ?`,
+    remote.customer_name ? `客户：${remote.customer_name}` : null,
+    dueAt,
+    local.id,
+    remote.id,
+    local.updated_at,
+    local.title,
+    local.due_at,
+    local.completed_at,
+  );
+  if (result.changes === 0) {
+    await database.runAsync(
+      "UPDATE todo_items SET sync_state = 'pending' WHERE id = ? AND remote_id = ?",
+      local.id,
+      remote.id,
+    );
+  }
   return result.changes > 0;
 }
 
 async function handleMissingRemoteTask(database: SQLiteDatabase, local: LocalSyncRow) {
   const deleted = await database.runAsync(
     `DELETE FROM todo_items
-     WHERE id = ? AND remote_id = ? AND sync_state = 'synced' AND updated_at = ?`,
+     WHERE id = ? AND remote_id = ? AND sync_state = 'synced' AND updated_at = ?
+       AND title = ? AND due_at IS ? AND completed_at IS ?`,
     local.id,
     local.remote_id,
     local.updated_at,
+    local.title,
+    local.due_at,
+    local.completed_at,
   );
   if (deleted.changes > 0) return;
 
@@ -288,4 +331,12 @@ async function handleMissingRemoteTask(database: SQLiteDatabase, local: LocalSyn
 
 function taskSignature(title: string, dueAt: string | null, status: 'open' | 'done') {
   return `${title.trim().toLocaleLowerCase()}\u0000${localDueToRemote(dueAt) ?? dueAt ?? ''}\u0000${status}`;
+}
+
+/** A date-only due date must stay date-only after its equivalent cloud round trip. */
+function preserveEquivalentLocalDue(localDueAt: string | null, remoteDueAt: string | null) {
+  const normalizedLocal = localDueToRemote(localDueAt);
+  const normalizedRemote = localDueToRemote(remoteDueAt);
+  if (normalizedLocal !== null && normalizedLocal === normalizedRemote) return localDueAt;
+  return remoteDueToLocal(remoteDueAt);
 }

@@ -102,3 +102,15 @@ test('a cloud timestamp is never guessed to be all-day, including legacy noon va
     date.remoteDueToLocal('bad date'),
   ]`), ['2026-11-06', '2026-11-06T04:00:00.000Z', '2026-11-05T16:00:00.000Z', null, null]);
 });
+
+test('editing the time saves the selected local hour and minute as an exact instant', () => {
+  assert.deepEqual(inTimeZone(`[
+    date.resolveEditedDueAt('2026-11-06', new Date(2026, 10, 6, 15, 45, 22), true, true),
+    date.resolveEditedDueAt('2026-11-06T07:30:00Z', new Date(2026, 10, 7, 15, 30), true, true),
+    date.resolveEditedDueAt('2026-11-06T07:30:00Z', new Date(2026, 10, 6, 15, 30), true, false),
+  ]`), ['2026-11-06T07:45:00.000Z', '2026-11-07T07:30:00.000Z', '2026-11-06']);
+  assert.equal(inTimeZone(
+    "date.resolveEditedDueAt(null, new Date(2026, 6, 6, 9, 15), true, true)",
+    'America/New_York',
+  ), '2026-07-06T13:15:00.000Z');
+});

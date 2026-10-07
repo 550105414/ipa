@@ -23,7 +23,9 @@ import {
   toLocalDateKey,
 } from '@/lib/date';
 import { useTodos } from '@/providers/todo-provider';
+import { getTaskReminderDate, requestReminderPermission } from '@/lib/todo-notifications';
 import { colors, layout } from '@/theme/colors';
+import type { TaskRepeatRule } from '@/types/todo';
 
 type DuePreset = {
   id: string;
@@ -36,6 +38,13 @@ const duePresets: DuePreset[] = [
   { id: 'today', label: '今天', offset: 0 },
   { id: 'tomorrow', label: '明天', offset: 1 },
   { id: 'week', label: '一周后', offset: 7 },
+];
+
+const repeatOptions: { value: TaskRepeatRule; label: string }[] = [
+  { value: 'none', label: '不重复' },
+  { value: 'daily', label: '每天' },
+  { value: 'weekly', label: '每周' },
+  { value: 'monthly', label: '每月' },
 ];
 
 export default function AddTaskScreen() {
@@ -66,6 +75,14 @@ export default function AddTaskScreen() {
   const [originalDueAt, setOriginalDueAt] = useState<string | null>(null);
   const [didChangeDate, setDidChangeDate] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [includeTime, setIncludeTime] = useState(false);
+  const [selectedTime, setSelectedTime] = useState(() => {
+    const date = new Date();
+    date.setHours(9, 0, 0, 0);
+    return date;
+  });
+  const [repeatRule, setRepeatRule] = useState<TaskRepeatRule>('none');
   const [isStarred, setIsStarred] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [didInitializeEditingTask, setDidInitializeEditingTask] = useState(false);
@@ -80,6 +97,11 @@ export default function AddTaskScreen() {
     setCategoryId(editingTask.categoryId);
     setSelectedDueDate(dateFromLocalDateKey(editingTask.dueAt));
     setOriginalDueAt(editingTask.dueAt);
+    const originalDate = dateFromLocalDateKey(editingTask.dueAt);
+    const hasTime = Boolean(editingTask.dueAt && editingTask.dueAt.trim().length > 10);
+    setIncludeTime(hasTime);
+    if (originalDate && hasTime) setSelectedTime(originalDate);
+    setRepeatRule(editingTask.repeatRule ?? 'none');
     setIsStarred(editingTask.isStarred);
     setDidInitializeEditingTask(true);
   }, [didInitializeEditingTask, editingTask]);
@@ -93,14 +115,43 @@ export default function AddTaskScreen() {
     }
   }, [categories, categoryId, didInitializeEditingTask, taskId]);
 
-  const dueAt = resolveEditedDueAt(originalDueAt, selectedDueDate, didChangeDate);
+  const dueAt = resolveEditedDueAt(originalDueAt, selectedDueDate, didChangeDate, includeTime);
   const selectedDateKey = selectedDueDate ? toLocalDateKey(selectedDueDate) : null;
   const changeDueDate = (date: Date | null) => {
     const nextKey = date ? toLocalDateKey(date) : null;
     if (nextKey !== selectedDateKey || (date === null && dueAt !== null)) {
       setDidChangeDate(true);
     }
-    setSelectedDueDate(date);
+    if (date && includeTime) {
+      const combined = new Date(date);
+      combined.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+      setSelectedDueDate(combined);
+    } else {
+      setSelectedDueDate(date);
+    }
+    if (!date) {
+      setRepeatRule('none');
+      setShowTimePicker(false);
+    }
+  };
+  const changeTime = (date: Date) => {
+    setSelectedTime(date);
+    if (selectedDueDate) {
+      const combined = new Date(selectedDueDate);
+      combined.setHours(date.getHours(), date.getMinutes(), 0, 0);
+      setSelectedDueDate(combined);
+      setDidChangeDate(true);
+    }
+  };
+  const changeIncludeTime = (enabled: boolean) => {
+    setIncludeTime(enabled);
+    setDidChangeDate(true);
+    setShowTimePicker(enabled);
+    if (enabled && selectedDueDate) {
+      const combined = new Date(selectedDueDate);
+      combined.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+      setSelectedDueDate(combined);
+    }
   };
   const selectedDuePreset = useMemo(() => {
     if (!selectedDateKey) {
@@ -125,12 +176,25 @@ export default function AddTaskScreen() {
 
     setIsSaving(true);
     try {
+      let reminderWarning: string | null = null;
+      const reminderDate = getTaskReminderDate(dueAt);
+      if (!editingTask?.completedAt && reminderDate && reminderDate.getTime() > Date.now()) {
+        try {
+          const permission = await requestReminderPermission();
+          if (!permission.granted) {
+            reminderWarning = '待办已保存，但通知权限未开启。请在“计划 → 锁屏提醒”开启通知，才能收到熄屏提醒。';
+          }
+        } catch {
+          reminderWarning = '待办已保存，提醒权限检查失败。请在“计划 → 锁屏提醒”重试。';
+        }
+      }
       const input = {
         title,
         notes,
         categoryId,
         dueAt,
         isStarred,
+        repeatRule: dueAt ? repeatRule : 'none' as const,
       };
       if (taskId !== null) {
         if (!editingTask) {
@@ -142,6 +206,7 @@ export default function AddTaskScreen() {
         await addTask(input);
       }
       router.back();
+      if (reminderWarning) Alert.alert('提醒需要设置', reminderWarning);
     } catch (error) {
       Alert.alert('保存失败', error instanceof Error ? error.message : '请稍后重试。');
     } finally {
@@ -242,7 +307,7 @@ export default function AddTaskScreen() {
 
         <View style={styles.formSection}>
           <Text selectable style={styles.sectionTitle}>
-            日期
+            日期与提醒
           </Text>
           <View style={styles.dueGrid}>
             {duePresets.map((preset) => {
@@ -336,6 +401,77 @@ export default function AddTaskScreen() {
               ) : null}
             </View>
           ) : null}
+          {selectedDueDate ? (
+            <View style={styles.datePickerCard}>
+              <View style={styles.timeHeader}>
+                <View style={styles.starCopy}>
+                  <Text style={styles.starTitle}>指定时间</Text>
+                  <Text style={styles.helpText}>
+                    {includeTime ? '按这个时间提醒，并在桌面小组件显示' : '当天 09:00 提醒，小组件当天零点起显示'}
+                  </Text>
+                </View>
+                <Switch
+                  accessibilityLabel="指定待办提醒时间"
+                  onValueChange={changeIncludeTime}
+                  trackColor={{ false: '#D4D4D9', true: colors.blue }}
+                  value={includeTime}
+                />
+              </View>
+              {includeTime ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="选择提醒时分"
+                  onPress={() => setShowTimePicker((visible) => !visible)}
+                  style={styles.timeButton}>
+                  <SymbolIcon name="clock" color={colors.blue} size={18} />
+                  <Text style={styles.selectedDueText}>
+                    {selectedTime.getHours().toString().padStart(2, '0')}:{selectedTime.getMinutes().toString().padStart(2, '0')}
+                  </Text>
+                  <Text style={styles.helpText}>点击调整</Text>
+                </Pressable>
+              ) : null}
+              {includeTime && showTimePicker ? (
+                <ExpoDateTimePicker
+                  accentColor={colors.blue}
+                  display={process.env.EXPO_OS === 'ios' ? 'spinner' : 'default'}
+                  locale="zh_CN"
+                  mode="time"
+                  onDismiss={() => setShowTimePicker(false)}
+                  onValueChange={(_, date) => {
+                    changeTime(date);
+                    if (process.env.EXPO_OS !== 'ios') setShowTimePicker(false);
+                  }}
+                  presentation={process.env.EXPO_OS === 'ios' ? 'inline' : 'dialog'}
+                  style={styles.datePicker}
+                  value={selectedDueDate}
+                />
+              ) : null}
+            </View>
+          ) : null}
+          <Text style={styles.helpText}>
+            到期通知由手机本地发送，无需联网或一直打开 App。已过的时间不会补发通知。
+          </Text>
+        </View>
+
+        <View style={styles.formSection}>
+          <Text style={styles.sectionTitle}>重复待办</Text>
+          <View style={styles.dueGrid}>
+            {repeatOptions.map((option) => (
+              <Pressable
+                key={option.value}
+                accessibilityRole="button"
+                accessibilityState={{ selected: repeatRule === option.value, disabled: !dueAt && option.value !== 'none' }}
+                disabled={!dueAt && option.value !== 'none'}
+                onPress={() => setRepeatRule(option.value)}
+                style={({ pressed }) => [styles.dueChip, repeatRule === option.value && styles.selectedDueChip,
+                  { opacity: pressed || (!dueAt && option.value !== 'none') ? 0.45 : 1 }]}>
+                <Text style={[styles.dueText, repeatRule === option.value && styles.selectedDueText]}>{option.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.helpText}>
+            {dueAt ? '完成后自动创建下一期，保留日期、时间与分组。撤销完成不会删除已生成的下一期。重复规则保存在本机。' : '先选择日期，再设置每天、每周或每月重复。'}
+          </Text>
         </View>
 
         <View style={styles.starCard}>
@@ -511,6 +647,24 @@ const styles = StyleSheet.create({
   },
   datePicker: {
     width: '100%',
+  },
+  timeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 10,
+  },
+  timeButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingHorizontal: 10,
+  },
+  helpText: {
+    color: colors.secondaryLabel,
+    fontSize: 12,
+    lineHeight: 18,
   },
   clearDateButton: {
     minHeight: 42,

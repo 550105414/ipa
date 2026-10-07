@@ -1,3 +1,6 @@
+export type RepeatRule = 'none' | 'daily' | 'weekly' | 'monthly';
+export type TaskRepeatRule = RepeatRule;
+
 export type TodoCategory = {
   id: string;
   name: string;
@@ -19,6 +22,7 @@ export type TodoTask = {
   categoryIcon: string;
   isStarred: boolean;
   dueAt: string | null;
+  repeatRule: RepeatRule;
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -30,6 +34,7 @@ export type NewTodoInput = {
   categoryId: string;
   isStarred: boolean;
   dueAt: string | null;
+  repeatRule?: RepeatRule;
 };
 
 export type UpdateTodoInput = NewTodoInput & {

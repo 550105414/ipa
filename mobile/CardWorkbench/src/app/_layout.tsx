@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { migrateDatabase } from '@/lib/database';
 import { TodoProvider } from '@/providers/todo-provider';
 import { PrivacyGate } from '@/components/privacy-gate';
+import { NotificationNavigation } from '@/components/notification-navigation';
 
 export default function RootLayout() {
   return (
@@ -96,6 +97,7 @@ export default function RootLayout() {
               }}
             />
           </Stack>
+          <NotificationNavigation />
           <StatusBar style="dark" />
         </TodoProvider>
       </SQLiteProvider>

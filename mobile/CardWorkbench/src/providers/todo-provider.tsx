@@ -34,6 +34,8 @@ export type TodoSyncStatus =
   | 'offline'
   | 'widget-error';
 
+export type TodoWidgetStatus = 'idle' | 'updating' | 'updated' | 'error';
+
 type RefreshOptions = {
   requireCloud?: boolean;
 };
@@ -53,6 +55,10 @@ type TodoContextValue = {
   syncStatus: TodoSyncStatus;
   syncMessage: string | null;
   syncMetrics: TodoRefreshResult;
+  widgetStatus: TodoWidgetStatus;
+  widgetUpdatedAt: string | null;
+  widgetError: string | null;
+  reminderError: string | null;
   refresh: (options?: RefreshOptions) => Promise<TodoRefreshResult>;
   addTask: (input: NewTodoInput) => Promise<number>;
   updateTask: (input: UpdateTodoInput) => Promise<void>;
@@ -78,8 +84,13 @@ export function TodoProvider({ children }: PropsWithChildren) {
   const [syncStatus, setSyncStatus] = useState<TodoSyncStatus>('idle');
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncMetrics, setSyncMetrics] = useState<TodoRefreshResult>(EMPTY_METRICS);
+  const [widgetStatus, setWidgetStatus] = useState<TodoWidgetStatus>('idle');
+  const [widgetUpdatedAt, setWidgetUpdatedAt] = useState<string | null>(null);
+  const [widgetError, setWidgetError] = useState<string | null>(null);
+  const [reminderError, setReminderError] = useState<string | null>(null);
   const syncMetricsRef = useRef<TodoRefreshResult>(EMPTY_METRICS);
   const refreshGeneration = useRef(0);
+  const widgetStateRef = useRef<TodoWidgetSyncState>('unpaired');
 
   const publishLocalState = useCallback(
     async (generation: number, widgetState: TodoWidgetSyncState) => {
@@ -93,7 +104,19 @@ export function TodoProvider({ children }: PropsWithChildren) {
       setCategories(nextCategories);
       setTasks(nextTasks);
       setErrorMessage(null);
-      void syncTaskNotifications(nextTasks).catch(() => undefined);
+      // SQLite is the first render source. Neither a slow network nor WidgetKit
+      // should leave existing local tasks hidden behind the loading screen.
+      setIsLoading(false);
+      void syncTaskNotifications(nextTasks).then(
+        () => {
+          if (generation === refreshGeneration.current) setReminderError(null);
+        },
+        (error: unknown) => {
+          if (generation === refreshGeneration.current) {
+            setReminderError(error instanceof Error ? error.message : '提醒安排失败，请重试。');
+          }
+        },
+      );
 
       const widgetTasks: WidgetSyncTask[] = nextTasks.map((task) => ({
         id: String(task.id),
@@ -105,17 +128,26 @@ export function TodoProvider({ children }: PropsWithChildren) {
         dueLabel: formatDueDate(task.dueAt),
       }));
 
+      setWidgetStatus('updating');
+      setWidgetError(null);
       try {
         const widget = await syncTodoWidget(widgetTasks, widgetState);
         if (generation !== refreshGeneration.current) return null;
+        // This confirms the shared snapshot was written, not that iOS has
+        // already repainted the Home Screen; WidgetKit controls that timing.
+        setWidgetStatus('updated');
+        setWidgetUpdatedAt(widget.updatedAt);
         return { localCount: nextTasks.length, widgetCount: widget.total, widgetError: null };
       } catch (error) {
         if (generation !== refreshGeneration.current) return null;
+        const message =
+          error instanceof Error ? error.message : '小组件写入失败，请打开工作台重试。';
+        setWidgetStatus('error');
+        setWidgetError(message);
         return {
           localCount: nextTasks.length,
           widgetCount: 0,
-          widgetError:
-            error instanceof Error ? error.message : '小组件写入失败，请打开工作台重试。',
+          widgetError: message,
         };
       }
     },
@@ -126,13 +158,33 @@ export function TodoProvider({ children }: PropsWithChildren) {
     async (options: RefreshOptions = {}): Promise<TodoRefreshResult> => {
       const generation = ++refreshGeneration.current;
       setSyncStatus('syncing');
-      setSyncMessage('正在同步网页、手机和桌面小组件…');
+      setSyncMessage('正在读取本机待办，随后后台同步…');
+
+      try {
+        const initialLocal = await publishLocalState(generation, widgetStateRef.current);
+        if (!initialLocal) return syncMetricsRef.current;
+        syncMetricsRef.current = {
+          ...syncMetricsRef.current,
+          localCount: initialLocal.localCount,
+          widgetCount: initialLocal.widgetCount,
+        };
+        setSyncMetrics(syncMetricsRef.current);
+        setSyncMessage('本机待办已加载，正在后台同步网页…');
+      } catch (error) {
+        if (generation === refreshGeneration.current) {
+          setErrorMessage(error instanceof Error ? error.message : '待办数据读取失败');
+          setIsLoading(false);
+          setSyncStatus('offline');
+          setSyncMessage('本机待办读取失败，请重试。');
+        }
+        throw error;
+      }
 
       let cloud: TaskSyncResult = {
-        paired: false,
+        paired: syncMetricsRef.current.paired,
         pulled: 0,
         pushed: 0,
-        remoteCount: 0,
+        remoteCount: syncMetricsRef.current.remoteCount,
       };
       let cloudError: unknown;
       try {
@@ -142,10 +194,11 @@ export function TodoProvider({ children }: PropsWithChildren) {
       }
 
       try {
-        const local = await publishLocalState(
-          generation,
-          cloudError ? 'error' : cloud.paired ? 'ready' : 'unpaired',
-        );
+        // An edit or another refresh owns a newer generation. It requests its
+        // own reconciliation pass; this earlier result must not repaint it.
+        if (generation !== refreshGeneration.current) return syncMetricsRef.current;
+        widgetStateRef.current = cloudError ? 'error' : cloud.paired ? 'ready' : 'unpaired';
+        const local = await publishLocalState(generation, widgetStateRef.current);
         if (!local) return syncMetricsRef.current;
 
         const metrics: TodoRefreshResult = {
@@ -181,7 +234,11 @@ export function TodoProvider({ children }: PropsWithChildren) {
         return metrics;
       } catch (error) {
         if (generation === refreshGeneration.current) {
-          setErrorMessage(error instanceof Error ? error.message : '待办数据读取失败');
+          // A cloud-required action may reject, but offline local tasks remain
+          // visible and editable instead of becoming a full-screen error.
+          if (!cloudError && (!options.requireCloud || cloud.paired)) {
+            setErrorMessage(error instanceof Error ? error.message : '待办数据读取失败');
+          }
         }
         throw error;
       } finally {
@@ -195,7 +252,15 @@ export function TodoProvider({ children }: PropsWithChildren) {
     const generation = ++refreshGeneration.current;
     setSyncStatus('syncing');
     setSyncMessage('本机已更新，正在同步到网页…');
-    const local = await publishLocalState(generation, syncMetrics.paired ? 'ready' : 'unpaired');
+    const local = await publishLocalState(generation, widgetStateRef.current);
+    if (local) {
+      syncMetricsRef.current = {
+        ...syncMetricsRef.current,
+        localCount: local.localCount,
+        widgetCount: local.widgetCount,
+      };
+      setSyncMetrics(syncMetricsRef.current);
+    }
     if (local?.widgetError) {
       setSyncStatus('widget-error');
       setSyncMessage(`小组件同步失败：${local.widgetError}`);
@@ -203,7 +268,7 @@ export function TodoProvider({ children }: PropsWithChildren) {
     // Network work is intentionally detached from the tap. SQLite and the
     // widget are already current; cloud reconciliation continues in background.
     void refresh().catch(() => undefined);
-  }, [publishLocalState, refresh, syncMetrics.paired]);
+  }, [publishLocalState, refresh]);
 
   useEffect(() => {
     void refresh().catch(() => undefined);
@@ -258,6 +323,10 @@ export function TodoProvider({ children }: PropsWithChildren) {
       syncStatus,
       syncMessage,
       syncMetrics,
+      widgetStatus,
+      widgetUpdatedAt,
+      widgetError,
+      reminderError,
       refresh,
       addTask,
       updateTask,
@@ -273,6 +342,10 @@ export function TodoProvider({ children }: PropsWithChildren) {
       syncMessage,
       syncMetrics,
       syncStatus,
+      widgetStatus,
+      widgetUpdatedAt,
+      widgetError,
+      reminderError,
       tasks,
       toggleCompleted,
       toggleStarred,

@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SymbolIcon } from '@/components/symbol-icon';
 import { formatCompletedDate, formatDueDate } from '@/lib/date';
+import { REPEAT_RULE_LABELS } from '@/lib/task-recurrence';
 import { colors } from '@/theme/colors';
 import type { TodoTask } from '@/types/todo';
 
@@ -63,7 +64,7 @@ export function TaskRow({
             {task.notes}
           </Text>
         ) : null}
-        {dueLabel || task.label ? (
+        {dueLabel || task.label || (task.repeatRule && task.repeatRule !== 'none') ? (
           <View style={styles.metadataRow}>
             {dueLabel ? (
               <View style={styles.dueRow}>
@@ -77,6 +78,14 @@ export function TaskRow({
               <Text selectable style={[styles.label, { color: task.categoryColor, backgroundColor: task.categoryTint }]}>
                 {task.label}
               </Text>
+            ) : null}
+            {task.repeatRule && task.repeatRule !== 'none' ? (
+              <View style={styles.dueRow}>
+                <SymbolIcon name="repeat" color={task.categoryColor} size={12} />
+                <Text style={[styles.dueText, { color: task.categoryColor }]}>
+                  {REPEAT_RULE_LABELS[task.repeatRule]}
+                </Text>
+              </View>
             ) : null}
           </View>
         ) : null}

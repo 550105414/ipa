@@ -13,6 +13,7 @@ import { createWidget, type WidgetEnvironment } from 'expo-widgets';
 
 import WidgetSnapshot from '@widget-snapshot';
 
+import { buildWidgetTimeline, createWidgetSnapshot } from './widget-schedule';
 import type {
   TodoWidgetSnapshot,
   TodoWidgetSyncResult,
@@ -29,17 +30,17 @@ function TaskRow({ task }: { task: TodoWidgetTask }) {
   'widget';
 
   return (
-    <HStack spacing={7}>
-      <Image systemName="circle" size={15} color={task.accent || DEFAULT_ACCENT} />
+    <HStack spacing={6}>
+      <Image systemName="circle" size={13} color={task.accent || DEFAULT_ACCENT} />
       <VStack
         alignment="leading"
-        spacing={1}
+        spacing={2}
         modifiers={[frame({ maxWidth: 240, alignment: 'leading' })]}>
         <Text
           modifiers={[
-            font({ size: 14, weight: 'medium' }),
+            font({ size: 13, weight: 'regular' }),
             foregroundStyle('#16181D'),
-            lineLimit(1),
+            lineLimit(task.dueLabel ? 1 : 2),
           ]}>
           {task.title}
         </Text>
@@ -48,7 +49,7 @@ function TaskRow({ task }: { task: TodoWidgetTask }) {
             <Image systemName="calendar" size={9} color={task.accent || DEFAULT_ACCENT} />
             <Text
               modifiers={[
-                font({ size: 10, weight: 'medium' }),
+                font({ size: 10, weight: 'regular' }),
                 foregroundStyle(task.accent || DEFAULT_ACCENT),
                 lineLimit(1),
               ]}>
@@ -60,31 +61,28 @@ function TaskRow({ task }: { task: TodoWidgetTask }) {
       <Spacer minLength={2} />
       <Image
         systemName={task.starred ? 'star.fill' : 'star'}
-        size={14}
+        size={12}
         color={task.starred ? '#FF962E' : '#B8BBC2'}
       />
     </HStack>
   );
 }
 
-function TodoWidgetView(props: TodoWidgetSnapshot, environment: WidgetEnvironment) {
+function TodoWidgetView(props: TodoWidgetSnapshot, _environment: WidgetEnvironment) {
   'widget';
 
-  const visibleTasks = props.tasks.slice(
-    0,
-    environment.widgetFamily === 'systemSmall' ? 3 : 5,
-  );
+  const visibleTasks = props.tasks.slice(0, 3);
   const emptyMessage =
     props.syncState === 'unpaired'
       ? '打开工作台完成连接'
       : props.syncState === 'error'
         ? '同步失败，打开工作台重试'
-        : '暂无待办';
+        : '暂无到期待办';
 
   return (
     <VStack
       alignment="leading"
-      spacing={7}
+      spacing={4}
       modifiers={[
         padding({ all: 12 }),
         background('#FFFFFF'),
@@ -94,17 +92,17 @@ function TodoWidgetView(props: TodoWidgetSnapshot, environment: WidgetEnvironmen
         <Image systemName="list.bullet.rectangle" size={17} color={DEFAULT_ACCENT} />
         <Text
           modifiers={[
-            font({ size: 17, weight: 'bold' }),
+            font({ size: 16, weight: 'semibold' }),
             foregroundStyle(DEFAULT_ACCENT),
           ]}>
-          全部
+          待办
         </Text>
         <Spacer />
         <Text
           modifiers={[
-            font({ size: 13, weight: 'bold' }),
+            font({ size: 12, weight: 'semibold' }),
             foregroundStyle('#17181B'),
-            padding({ horizontal: 9, vertical: 4 }),
+            padding({ horizontal: 9, vertical: 2 }),
             background('#F1F1F3'),
             cornerRadius(13),
           ]}>
@@ -139,30 +137,21 @@ function TodoWidgetView(props: TodoWidgetSnapshot, environment: WidgetEnvironmen
 
 export const TodoWidget = createWidget<TodoWidgetSnapshot>('TodoWidget', TodoWidgetView);
 
+// A single writer prevents an earlier async refresh from overwriting a newer
+// snapshot or mistaking a newer file for a failed read-back verification.
+let snapshotWrites: Promise<unknown> = Promise.resolve();
+
 export async function syncTodoWidget(
   tasks: WidgetSyncTask[],
   syncState: TodoWidgetSyncState = 'ready',
 ): Promise<TodoWidgetSyncResult> {
-  const activeTasks = tasks.filter(
-    (task) => !task.completedAt && task.isCompleted !== true,
-  );
-  const snapshot: TodoWidgetSnapshot = {
-    total: activeTasks.length,
-    tasks: activeTasks.slice(0, 8).map((task) => {
-      const dueLabel = task.dueLabel?.trim();
-      const color = task.color ?? '';
-      return {
-        id: String(task.id),
-        title: task.title.trim() || '未命名待办',
-        accent: /^#[0-9A-F]{6}$/i.test(color) ? color : DEFAULT_ACCENT,
-        starred: task.isStarred === true || task.starred === true,
-        ...(dueLabel ? { dueLabel } : {}),
-      };
-    }),
-    updatedAt: new Date().toISOString(),
-    syncState,
-  };
+  const snapshot = createWidgetSnapshot(tasks, syncState);
+  const operation = snapshotWrites.then(() => persistWidgetSnapshot(snapshot));
+  snapshotWrites = operation.catch(() => undefined);
+  return operation;
+}
 
+async function persistWidgetSnapshot(snapshot: TodoWidgetSnapshot): Promise<TodoWidgetSyncResult> {
   // The WidgetKit extension is a separate process. Persist one authoritative,
   // atomic snapshot in the App Group and verify the native file before reload.
   const encodedSnapshot = JSON.stringify(snapshot);
@@ -186,7 +175,9 @@ export async function syncTodoWidget(
   // Keep the expo-widgets timeline as a compatibility fallback only. Failure
   // here must not invalidate the verified App Group file used by WidgetKit.
   try {
-    TodoWidget.updateSnapshot(snapshot);
+    TodoWidget.updateTimeline(
+      buildWidgetTimeline(snapshot).map((entry) => ({ ...entry, date: new Date(entry.date) })),
+    );
     TodoWidget.reload();
   } catch {
     // The native snapshot file is authoritative.

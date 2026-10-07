@@ -19,6 +19,7 @@ import {
   dateFromLocalDateKey,
   dateKeyFromNow,
   formatDueDate,
+  resolveEditedDueAt,
   toLocalDateKey,
 } from '@/lib/date';
 import { useTodos } from '@/providers/todo-provider';
@@ -62,6 +63,8 @@ export default function AddTaskScreen() {
   const [notes, setNotes] = useState('');
   const [categoryId, setCategoryId] = useState(requestedCategory ?? '');
   const [selectedDueDate, setSelectedDueDate] = useState<Date | null>(null);
+  const [originalDueAt, setOriginalDueAt] = useState<string | null>(null);
+  const [didChangeDate, setDidChangeDate] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isStarred, setIsStarred] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -76,6 +79,7 @@ export default function AddTaskScreen() {
     setNotes(editingTask.notes ?? '');
     setCategoryId(editingTask.categoryId);
     setSelectedDueDate(dateFromLocalDateKey(editingTask.dueAt));
+    setOriginalDueAt(editingTask.dueAt);
     setIsStarred(editingTask.isStarred);
     setDidInitializeEditingTask(true);
   }, [didInitializeEditingTask, editingTask]);
@@ -89,17 +93,25 @@ export default function AddTaskScreen() {
     }
   }, [categories, categoryId, didInitializeEditingTask, taskId]);
 
-  const dueAt = selectedDueDate ? toLocalDateKey(selectedDueDate) : null;
+  const dueAt = resolveEditedDueAt(originalDueAt, selectedDueDate, didChangeDate);
+  const selectedDateKey = selectedDueDate ? toLocalDateKey(selectedDueDate) : null;
+  const changeDueDate = (date: Date | null) => {
+    const nextKey = date ? toLocalDateKey(date) : null;
+    if (nextKey !== selectedDateKey || (date === null && dueAt !== null)) {
+      setDidChangeDate(true);
+    }
+    setSelectedDueDate(date);
+  };
   const selectedDuePreset = useMemo(() => {
-    if (!dueAt) {
+    if (!selectedDateKey) {
       return 'none';
     }
     return (
       duePresets.find(
-        (preset) => preset.offset !== null && dateKeyFromNow(preset.offset) === dueAt,
+        (preset) => preset.offset !== null && dateKeyFromNow(preset.offset) === selectedDateKey,
       )?.id ?? 'custom'
     );
-  }, [dueAt]);
+  }, [selectedDateKey]);
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -242,11 +254,11 @@ export default function AddTaskScreen() {
                   accessibilityState={{ selected }}
                   onPress={() => {
                     if (preset.offset === null) {
-                      setSelectedDueDate(null);
+                      changeDueDate(null);
                       setShowDatePicker(false);
                       return;
                     }
-                    setSelectedDueDate(dateFromLocalDateKey(dateKeyFromNow(preset.offset)));
+                    changeDueDate(dateFromLocalDateKey(dateKeyFromNow(preset.offset)));
                     setShowDatePicker(false);
                   }}
                   style={({ pressed }) => [
@@ -298,7 +310,7 @@ export default function AddTaskScreen() {
                 mode="date"
                 onDismiss={() => setShowDatePicker(false)}
                 onValueChange={(_, date) => {
-                  setSelectedDueDate(date);
+                  changeDueDate(date);
                   if (process.env.EXPO_OS !== 'ios') {
                     setShowDatePicker(false);
                   }
@@ -311,7 +323,7 @@ export default function AddTaskScreen() {
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => {
-                    setSelectedDueDate(null);
+                    changeDueDate(null);
                     setShowDatePicker(false);
                   }}
                   style={({ pressed }) => [

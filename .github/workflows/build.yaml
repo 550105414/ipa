@@ -28,8 +28,8 @@ jobs:
       # generated project name (`app`), not from this repository folder name.
       SCHEME: app
       WIDGET_TARGET: ExpoWidgetsTarget
-      APP_VERSION: 1.4.0
-      APP_BUILD: "9"
+      APP_VERSION: 1.4.1
+      APP_BUILD: "10"
       WIDGET_DISPLAY_NAME: 工作台待办
 
     steps:
@@ -70,6 +70,14 @@ jobs:
 
       - name: Tests
         run: npm run test --if-present
+
+      - name: Test native widget due-time scheduling
+        run: |
+          set -euo pipefail
+          xcrun swiftc plugins/widget-schedule.swift tests/widget-schedule-tests.swift \
+            -o "$RUNNER_TEMP/widget-schedule-tests"
+          TZ=Asia/Shanghai "$RUNNER_TEMP/widget-schedule-tests"
+          TZ=America/Los_Angeles "$RUNNER_TEMP/widget-schedule-tests"
 
       - name: Check Expo dependencies
         run: npx expo install --check
@@ -136,6 +144,9 @@ jobs:
               "provider: TodoWidgetResilientTimelineProvider(name: name)",
               "CardWorkbenchTodoWidgetView(entry: entry)",
               'dictionary["dueLabel"] as? String',
+              "enum CardWorkbenchWidgetSchedule {",
+              "CardWorkbenchWidgetSchedule.entryDates(tasks, now: snapshot.date)",
+              "CardWorkbenchWidgetSchedule.visibleTasks(allTasks, at: date)",
           )
           for marker in required_markers:
               count = source.count(marker)
@@ -365,7 +376,7 @@ jobs:
           test -x "$hermes_compiler"
           "$hermes_compiler" -b -dump-bytecode "$main_bundle" \
             > "$RUNNER_TEMP/hermes-bytecode.txt"
-          grep -Fq 'updateSnapshot' "$RUNNER_TEMP/hermes-bytecode.txt"
+          grep -Fq 'updateTimeline' "$RUNNER_TEMP/hermes-bytecode.txt"
           grep -Fq 'createWidget' "$RUNNER_TEMP/hermes-bytecode.txt"
           grep -Fq 'TodoWidget' "$RUNNER_TEMP/hermes-bytecode.txt"
           grep -Fq 'syncTodoWidget' "$RUNNER_TEMP/hermes-bytecode.txt"

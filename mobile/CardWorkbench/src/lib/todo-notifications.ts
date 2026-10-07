@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 
+import { parseTodoDueDate } from '@/lib/date';
 import type { TodoTask } from '@/types/todo';
 
 const NOTIFICATION_SOURCE = 'cardworkbench-todo';
@@ -35,11 +36,11 @@ export async function syncTaskNotifications(tasks: TodoTask[]): Promise<void> {
   const dueTasks = tasks
     .filter((task) => {
       if (task.completedAt || !task.dueAt) return false;
-      const dueTime = new Date(task.dueAt).getTime();
+      const dueTime = parseTodoDueDate(task.dueAt)?.getTime() ?? NaN;
       return Number.isFinite(dueTime) && dueTime > now;
     })
     .sort((left, right) =>
-      new Date(left.dueAt ?? 0).getTime() - new Date(right.dueAt ?? 0).getTime(),
+      parseTodoDueDate(left.dueAt)!.getTime() - parseTodoDueDate(right.dueAt)!.getTime(),
     )
     .slice(0, MAX_SCHEDULED_TASKS);
 
@@ -54,7 +55,7 @@ export async function syncTaskNotifications(tasks: TodoTask[]): Promise<void> {
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: new Date(task.dueAt!),
+          date: parseTodoDueDate(task.dueAt)!,
         },
       }),
     ),

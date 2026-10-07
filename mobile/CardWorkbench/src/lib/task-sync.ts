@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { localDueToRemote, remoteDueToLocal } from '@/lib/date';
 import { loadWorkspaceSession, workspaceJson } from '@/lib/workspace-api';
 
 type RemoteTask = {
@@ -286,21 +287,5 @@ async function handleMissingRemoteTask(database: SQLiteDatabase, local: LocalSyn
 }
 
 function taskSignature(title: string, dueAt: string | null, status: 'open' | 'done') {
-  return `${title.trim().toLocaleLowerCase()}\u0000${dueAt ?? ''}\u0000${status}`;
-}
-
-function localDueToRemote(dueAt: string | null): string | null {
-  if (!dueAt) return null;
-  const value = new Date(`${dueAt}T12:00:00`);
-  return Number.isNaN(value.getTime()) ? null : value.toISOString();
-}
-
-function remoteDueToLocal(dueAt: string | null): string | null {
-  if (!dueAt) return null;
-  const value = new Date(dueAt);
-  if (Number.isNaN(value.getTime())) return null;
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, '0');
-  const day = String(value.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return `${title.trim().toLocaleLowerCase()}\u0000${localDueToRemote(dueAt) ?? dueAt ?? ''}\u0000${status}`;
 }

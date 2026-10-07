@@ -2,7 +2,7 @@
   "expo": {
     "name": "工作台",
     "slug": "CardWorkbench",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "cardworkbench",
@@ -10,7 +10,7 @@
     "ios": {
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.xiaoke.salesworkspace",
-      "buildNumber": "9",
+      "buildNumber": "10",
       "infoPlist": {
         "CFBundleDisplayName": "工作台",
         "NSFaceIDUsageDescription": "用于保护个人客户资料和待办内容。",
@@ -75,7 +75,8 @@
         }
       ],
       "expo-secure-store",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

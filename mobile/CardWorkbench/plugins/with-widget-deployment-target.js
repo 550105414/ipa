@@ -13,8 +13,11 @@ const WIDGET_DISPLAY_NAME = '工作台待办';
 const REQUIRED_DEPLOYMENT_TARGET = '16.1';
 const NATIVE_WIDGET_MARKER = '// CardWorkbench native widget fallback';
 const WIDGET_STORAGE_SYNC_MARKER = '// CardWorkbench synchronized App Group writes';
+const WIDGET_SCHEDULE_SWIFT = fs.readFileSync(path.join(__dirname, 'widget-schedule.swift'), 'utf8');
 
 const NATIVE_WIDGET_SWIFT = String.raw`${NATIVE_WIDGET_MARKER}
+
+${WIDGET_SCHEDULE_SWIFT}
 
 private let cardWorkbenchWidgetGroupIdentifier = "group.com.xiaoke.salesworkspace"
 private let cardWorkbenchWidgetSnapshotFileName = "todo-widget-snapshot.json"
@@ -48,10 +51,16 @@ private struct TodoWidgetResilientTimelineProvider: TimelineProvider {
     in context: Context,
     completion: @escaping @Sendable (Timeline<Entry>) -> Void
   ) {
+    let snapshot = readSnapshotEntry()
+    let tasks = snapshot.props?["tasks"] as? [[String: Any]] ?? []
+    let dates = CardWorkbenchWidgetSchedule.entryDates(tasks, now: snapshot.date)
+    // WidgetKit can advance these entries while the host app is suspended.
+    // Retain future tasks in the file; filter using each entry's date below.
+    let entries = dates.map { CardWorkbenchWidgetEntry(date: $0, props: snapshot.props) }
     completion(
       Timeline(
-        entries: [readSnapshotEntry()],
-        policy: .after(Date().addingTimeInterval(15 * 60))
+        entries: entries,
+        policy: dates.count > 1 ? .atEnd : .after(snapshot.date.addingTimeInterval(15 * 60))
       )
     )
   }
@@ -68,7 +77,8 @@ private struct TodoWidgetResilientTimelineProvider: TimelineProvider {
         )
       ),
       let object = try? JSONSerialization.jsonObject(with: data),
-      let props = object as? [String: Any]
+      let props = object as? [String: Any],
+      (props["schemaVersion"] as? NSNumber)?.intValue == 2
     else {
       return CardWorkbenchWidgetEntry(date: Date(), props: nil)
     }
@@ -178,7 +188,7 @@ private struct CardWorkbenchWidgetModel {
     syncState: "ready"
   )
 
-  init(props: [String: Any]?) {
+  init(props: [String: Any]?, at date: Date) {
     guard let props else {
       self.total = 0
       self.tasks = []
@@ -187,25 +197,17 @@ private struct CardWorkbenchWidgetModel {
       return
     }
 
-    let rawTasks = props["tasks"] as? [Any] ?? []
+    let allTasks = props["tasks"] as? [[String: Any]] ?? []
+    let rawTasks = CardWorkbenchWidgetSchedule.visibleTasks(allTasks, at: date)
     let parsedTasks: [CardWorkbenchWidgetTask] = rawTasks.enumerated().compactMap {
-      index, rawTask -> CardWorkbenchWidgetTask? in
-      guard let dictionary = rawTask as? [String: Any] else {
-        return nil
-      }
-
+      index, dictionary -> CardWorkbenchWidgetTask? in
       return CardWorkbenchWidgetTask(dictionary: dictionary, index: index)
     }
 
     self.tasks = parsedTasks
 
-    if let total = props["total"] as? NSNumber {
-      self.total = max(total.intValue, parsedTasks.count)
-    } else if let total = props["total"] as? Int {
-      self.total = max(total, parsedTasks.count)
-    } else {
-      self.total = parsedTasks.count
-    }
+    // The stored total becomes stale as time passes; count the visible set.
+    self.total = parsedTasks.count
 
     self.hasSnapshot = true
     self.syncState = props["syncState"] as? String ?? "ready"
@@ -226,12 +228,11 @@ private struct CardWorkbenchWidgetModel {
 
 private struct CardWorkbenchTodoWidgetView: View {
   @Environment(\.redactionReasons) private var redactionReasons
-  @Environment(\.widgetFamily) private var widgetFamily
 
   private let model: CardWorkbenchWidgetModel
 
   init(entry: CardWorkbenchWidgetEntry) {
-    self.model = CardWorkbenchWidgetModel(props: entry.props)
+    self.model = CardWorkbenchWidgetModel(props: entry.props, at: entry.date)
   }
 
   @ViewBuilder
@@ -246,7 +247,7 @@ private struct CardWorkbenchTodoWidgetView: View {
   }
 
   private var maximumTaskCount: Int {
-    widgetFamily == .systemSmall ? 3 : 5
+    3
   }
 
   private var displayedModel: CardWorkbenchWidgetModel {
@@ -268,7 +269,7 @@ private struct CardWorkbenchTodoWidgetView: View {
     if displayedModel.syncState == "error" {
       return "同步失败，打开工作台重试"
     }
-    return "暂无待办"
+    return "暂无到期待办"
   }
 
   private var emptySystemImage: String {
@@ -279,25 +280,25 @@ private struct CardWorkbenchTodoWidgetView: View {
   }
 
   private var content: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      HStack(spacing: 7) {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 8) {
         Image(systemName: "list.bullet.rectangle")
           .font(.system(size: 17, weight: .semibold))
           .foregroundStyle(Color(cardWorkbenchHex: "#3B78B9"))
           .accessibilityHidden(true)
 
-        Text("全部")
-          .font(.system(size: 17, weight: .bold))
+        Text("待办")
+          .font(.system(size: 16, weight: .semibold))
           .foregroundStyle(Color(cardWorkbenchHex: "#3B78B9"))
 
         Spacer(minLength: 4)
 
         Text(String(displayedModel.total))
-          .font(.system(size: 13, weight: .bold))
+          .font(.system(size: 12, weight: .semibold))
           .monospacedDigit()
           .foregroundStyle(Color(uiColor: .label))
           .padding(.horizontal, 9)
-          .padding(.vertical, 4)
+          .padding(.vertical, 2)
           .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
       }
 
@@ -318,18 +319,23 @@ private struct CardWorkbenchTodoWidgetView: View {
         Spacer(minLength: 0)
       } else {
         ForEach(Array(displayedModel.tasks.prefix(maximumTaskCount))) { task in
-          HStack(spacing: 7) {
+          HStack(alignment: .top, spacing: 6) {
             Image(systemName: "circle")
-              .font(.system(size: 14, weight: .medium))
+              .font(.system(size: 13, weight: .regular))
               .foregroundStyle(task.accent)
+              .frame(width: 14, height: 17)
               .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
               Text(task.title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 13, weight: .regular))
                 .foregroundStyle(Color(uiColor: .label))
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                // Keep every task the same size. Long text wraps instead of
+                // shrinking just that row to 75% of its neighbours.
+                .lineLimit(task.dueLabel == nil ? 2 : 1)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
               if let dueLabel = task.dueLabel {
                 HStack(spacing: 3) {
@@ -339,18 +345,19 @@ private struct CardWorkbenchTodoWidgetView: View {
                     .accessibilityHidden(true)
 
                   Text(dueLabel)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .regular))
                     .monospacedDigit()
                     .foregroundStyle(task.accent)
                     .lineLimit(1)
                 }
               }
             }
-
-            Spacer(minLength: 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
 
             Image(systemName: task.starred ? "star.fill" : "star")
-              .font(.system(size: 14, weight: .semibold))
+              .font(.system(size: 12, weight: .medium))
+              .frame(width: 14, height: 17)
               .foregroundStyle(
                 task.starred
                   ? Color(cardWorkbenchHex: "#FF962E")
@@ -360,7 +367,7 @@ private struct CardWorkbenchTodoWidgetView: View {
           }
           .accessibilityElement(children: .combine)
           .accessibilityLabel(
-            Text(task.title + (task.starred ? "，已星标" : "，未星标"))
+            Text(task.title + (task.dueLabel.map { "，" + $0 } ?? "") + (task.starred ? "，已星标" : "，未星标"))
           )
         }
 

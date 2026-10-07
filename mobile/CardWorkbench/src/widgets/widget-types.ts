@@ -3,10 +3,12 @@ export type TodoWidgetTask = {
   title: string;
   accent: string;
   starred: boolean;
+  dueAt?: string | null;
   dueLabel?: string | null;
 };
 
 export type TodoWidgetSnapshot = {
+  schemaVersion: 2;
   total: number;
   tasks: TodoWidgetTask[];
   updatedAt: string;
@@ -21,6 +23,7 @@ export type WidgetSyncTask = {
   isCompleted?: boolean;
   isStarred?: boolean;
   starred?: boolean;
+  dueAt?: string | null;
   dueLabel?: string | null;
 };
 

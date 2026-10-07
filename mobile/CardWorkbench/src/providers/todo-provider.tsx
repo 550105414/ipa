@@ -101,6 +101,7 @@ export function TodoProvider({ children }: PropsWithChildren) {
         color: task.categoryColor,
         completedAt: task.completedAt,
         isStarred: task.isStarred,
+        dueAt: task.dueAt,
         dueLabel: formatDueDate(task.dueAt),
       }));
 

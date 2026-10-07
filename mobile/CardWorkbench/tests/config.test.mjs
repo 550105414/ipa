@@ -20,16 +20,16 @@ test('Expo iOS release configuration stays pinned', async () => {
   );
 
   assert.equal(appConfig.expo.name, '工作台');
-  assert.equal(appConfig.expo.version, '1.4.0');
+  assert.equal(appConfig.expo.version, '1.4.1');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '9');
+  assert.equal(appConfig.expo.ios.buildNumber, '10');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
-  assert.equal(packageJson.version, '1.4.0');
-  assert.equal(packageLock.version, '1.4.0');
-  assert.equal(packageLock.packages[''].version, '1.4.0');
+  assert.equal(packageJson.version, '1.4.1');
+  assert.equal(packageLock.version, '1.4.1');
+  assert.equal(packageLock.packages[''].version, '1.4.1');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
@@ -119,13 +119,13 @@ test('iOS widget implementation wins Metro platform resolution', async () => {
   await access(genericTsx);
   await access(iosTsx);
   assert.match(iosWidgetSource, /createWidget<TodoWidgetSnapshot>\('TodoWidget'/);
-  assert.match(iosWidgetSource, /TodoWidget\.updateSnapshot\(/);
+  assert.match(iosWidgetSource, /TodoWidget\.updateTimeline\(/);
   assert.match(iosWidgetSource, /TodoWidget\.reload\(\)/);
   assert.match(iosWidgetSource, /WidgetSnapshot\.writeSnapshotAsync\(encodedSnapshot\)/);
   assert.match(iosWidgetSource, /WidgetSnapshot\.readSnapshotAsync\(\)/);
   assert.ok(
     iosWidgetSource.indexOf('WidgetSnapshot.writeSnapshotAsync(encodedSnapshot)') <
-      iosWidgetSource.indexOf('TodoWidget.updateSnapshot(snapshot)'),
+      iosWidgetSource.indexOf('TodoWidget.updateTimeline('),
   );
   assert.match(compatibilityPlugin, /CardWorkbenchTodoWidgetView/);
   assert.match(compatibilityPlugin, /TodoWidgetResilientTimelineProvider/);
@@ -133,12 +133,17 @@ test('iOS widget implementation wins Metro platform resolution', async () => {
   assert.match(compatibilityPlugin, /FileManager\.default\.containerURL/);
   assert.match(compatibilityPlugin, /todo-widget-snapshot\.json/);
   assert.match(compatibilityPlugin, /JSONSerialization\.jsonObject/);
+  assert.match(compatibilityPlugin, /CardWorkbenchWidgetSchedule\.entryDates\(tasks, now: snapshot\.date\)/);
+  assert.match(compatibilityPlugin, /CardWorkbenchWidgetSchedule\.visibleTasks\(allTasks, at: date\)/);
+  assert.match(compatibilityPlugin, /props\["schemaVersion"\] as\? NSNumber/);
+  assert.doesNotMatch(compatibilityPlugin, /minimumScaleFactor/);
+  assert.match(compatibilityPlugin, /lineLimit\(task\.dueLabel == nil \? 2 : 1\)/);
   assert.match(compatibilityPlugin, /ENABLE_DEBUG_DYLIB = 'NO'/);
   assert.match(compatibilityPlugin, /SWIFT_OPTIMIZATION_LEVEL = '\"-O\"'/);
   assert.match(compatibilityPlugin, /defaults\.synchronize\(\)/);
   assert.match(
     compatibilityPlugin,
-    /policy: \.after\(Date\(\)\.addingTimeInterval\(15 \* 60\)\)/,
+    /policy: dates\.count > 1 \? \.atEnd : \.after\(snapshot\.date\.addingTimeInterval\(15 \* 60\)\)/,
   );
   assert.doesNotMatch(compatibilityPlugin, /policy: \.never/);
   assert.match(compatibilityPlugin, /static let preview/);
@@ -222,6 +227,7 @@ test('paired task sync remains offline-first and updates the widget from merged 
       providerSource.indexOf('publishLocalState('),
   );
   assert.match(providerSource, /const widget = await syncTodoWidget\(widgetTasks, widgetState\)/);
+  assert.match(providerSource, /dueAt: task\.dueAt/);
   assert.match(providerSource, /setTasks\(nextTasks\)[\s\S]*?await syncTodoWidget/);
   assert.match(providerSource, /await toggleTaskCompletion\(database, id\)[\s\S]*?await publishMutationImmediately\(\)/);
   assert.match(providerSource, /void refresh\(\)\.catch/);

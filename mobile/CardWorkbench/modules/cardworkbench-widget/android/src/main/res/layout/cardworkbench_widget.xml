@@ -1,34 +1,37 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
   android:id="@+id/cardworkbench_widget_root"
   android:layout_width="match_parent" android:layout_height="match_parent"
-  android:orientation="vertical" android:padding="16dp"
+  android:orientation="vertical" android:padding="12dp"
   android:background="@drawable/cardworkbench_widget_background">
-  <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="36dp"
+  <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="26dp"
     android:orientation="horizontal" android:gravity="center_vertical">
-    <ImageView android:layout_width="24dp" android:layout_height="24dp"
+    <ImageView android:id="@+id/cardworkbench_widget_icon"
+      android:layout_width="18dp" android:layout_height="18dp"
       android:src="@drawable/cardworkbench_widget_list" android:importantForAccessibility="no" />
     <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
-      android:layout_marginStart="8dp" android:text="全部" android:textSize="22sp"
+      android:layout_marginStart="5dp" android:text="全部" android:textSize="18sp"
       android:textStyle="bold" android:fontFamily="sans-serif" android:textColor="#3B78B9"
       android:singleLine="true" android:includeFontPadding="false" />
     <TextView android:id="@+id/cardworkbench_widget_count"
-      android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="30dp" android:minWidth="34dp"
-      android:paddingStart="9dp" android:paddingEnd="9dp" android:paddingTop="4dp" android:paddingBottom="4dp" android:gravity="center"
+      android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="22dp" android:minWidth="26dp"
+      android:maxWidth="48dp" android:layout_marginStart="4dp"
+      android:paddingStart="6dp" android:paddingEnd="6dp" android:paddingTop="3dp" android:paddingBottom="3dp" android:gravity="center"
       android:background="@drawable/cardworkbench_widget_count_background"
-      android:text="0" android:textSize="16sp" android:textStyle="bold" android:textColor="#202124"
+      android:text="0" android:textSize="12sp" android:textStyle="bold" android:textColor="#202124"
+      android:singleLine="true" android:ellipsize="end"
       android:fontFamily="sans-serif" android:includeFontPadding="false" />
   </LinearLayout>
   <LinearLayout android:id="@+id/cardworkbench_widget_rows"
     android:layout_width="match_parent" android:layout_height="wrap_content"
-    android:layout_marginTop="6dp" android:orientation="vertical" />
+    android:layout_marginTop="4dp" android:orientation="vertical" />
   <TextView android:id="@+id/cardworkbench_widget_empty"
     android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
-    android:gravity="center_vertical" android:text="打开工作台同步待办"
-    android:textColor="#8793A2" android:textSize="14sp" android:fontFamily="sans-serif"
-    android:includeFontPadding="false" android:maxLines="3" android:ellipsize="end" />
+    android:gravity="center_vertical" android:text="暂无到期待办\n到时自动显示"
+    android:textColor="#8793A2" android:textSize="12sp" android:fontFamily="sans-serif"
+    android:includeFontPadding="false" android:maxLines="2" android:ellipsize="end" />
   <TextView android:id="@+id/cardworkbench_widget_footer"
     android:layout_width="match_parent" android:layout_height="wrap_content"
-    android:layout_marginTop="6dp" android:text="点击打开工作台" android:textColor="#98A1AD"
-    android:textSize="11sp" android:fontFamily="sans-serif" android:singleLine="true"
+    android:layout_marginTop="4dp" android:text="" android:visibility="gone" android:textColor="#98A1AD"
+    android:textSize="10sp" android:fontFamily="sans-serif" android:singleLine="true"
     android:includeFontPadding="false" android:ellipsize="end" />
 </LinearLayout>

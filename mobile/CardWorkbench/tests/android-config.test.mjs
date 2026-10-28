@@ -8,7 +8,7 @@ const read = (path) => readFile(new URL(path, project), 'utf8');
 test('Android release identity, private data backup and permissions stay explicit', async () => {
   const { expo } = JSON.parse(await read('app.json'));
   assert.equal(expo.android.package, 'com.xiaoke.salesworkspace');
-  assert.equal(expo.android.versionCode, 12);
+  assert.equal(expo.android.versionCode, 13);
   assert.equal(expo.version, '1.6.0');
   assert.equal(expo.android.allowBackup, false);
   assert.ok(expo.android.permissions.includes('android.permission.SCHEDULE_EXACT_ALARM'));
@@ -25,6 +25,9 @@ test('Android release workflow stays manual-only and verifies a fixed non-debug 
   assert.match(source, /:app:assembleRelease/);
   assert.match(source, /:credential-vault:testReleaseUnitTest/);
   assert.match(source, /:cardworkbench-widget:testReleaseUnitTest/);
+  const { expo } = JSON.parse(await read('app.json'));
+  assert.ok(source.includes(`APP_BUILD: "${expo.android.versionCode}"`));
+  assert.ok(source.includes(`CardWorkbench-${expo.version}-build${expo.android.versionCode}.apk`));
   assert.match(source, /apksigner.*sign/);
   assert.match(source, /apksigner.*verify/);
   assert.match(source, /7d3a7242735b21ba70ee25175c448c37f8eb0697d86746014d7fd802ca7ddf89/);

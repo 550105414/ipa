@@ -2,25 +2,25 @@
   android:id="@+id/cardworkbench_widget_task_row"
   android:layout_width="match_parent" android:layout_height="wrap_content"
   android:orientation="horizontal" android:gravity="center_vertical"
-  android:paddingTop="7dp" android:paddingBottom="7dp">
+  android:paddingTop="4dp" android:paddingBottom="4dp">
   <TextView android:id="@+id/cardworkbench_widget_task_circle"
-    android:layout_width="28dp" android:layout_height="wrap_content" android:text="○"
-    android:textSize="25sp" android:textColor="#3B78B9" android:fontFamily="sans-serif"
+    android:layout_width="wrap_content" android:minWidth="21dp" android:layout_height="wrap_content" android:text="○"
+    android:textSize="18sp" android:textColor="#3B78B9" android:fontFamily="sans-serif"
     android:includeFontPadding="false" android:gravity="center_vertical" android:importantForAccessibility="no" />
   <LinearLayout android:layout_width="0dp" android:layout_weight="1"
     android:layout_height="wrap_content" android:orientation="vertical">
     <TextView android:id="@+id/cardworkbench_widget_task_title"
       android:layout_width="match_parent" android:layout_height="wrap_content"
-      android:textSize="16sp" android:textColor="#1B2027" android:fontFamily="sans-serif-medium"
+      android:textSize="14sp" android:textColor="#1B2027" android:fontFamily="sans-serif-medium"
       android:singleLine="true" android:ellipsize="end" android:includeFontPadding="false" />
     <TextView android:id="@+id/cardworkbench_widget_task_date"
       android:layout_width="match_parent" android:layout_height="wrap_content"
-      android:layout_marginTop="3dp" android:textSize="12sp" android:textColor="#5E88B0"
+      android:layout_marginTop="2dp" android:textSize="10sp" android:textColor="#5E88B0"
       android:fontFamily="sans-serif" android:singleLine="true" android:ellipsize="end"
       android:includeFontPadding="false" />
   </LinearLayout>
   <TextView android:id="@+id/cardworkbench_widget_task_star"
-    android:layout_width="24dp" android:layout_height="wrap_content" android:layout_marginStart="5dp"
-    android:textSize="23sp" android:textColor="#FF9E2A" android:fontFamily="sans-serif"
+    android:layout_width="wrap_content" android:minWidth="18dp" android:layout_height="wrap_content" android:layout_marginStart="3dp"
+    android:textSize="17sp" android:textColor="#FF9E2A" android:fontFamily="sans-serif"
     android:gravity="end" android:includeFontPadding="false" android:importantForAccessibility="no" />
 </LinearLayout>

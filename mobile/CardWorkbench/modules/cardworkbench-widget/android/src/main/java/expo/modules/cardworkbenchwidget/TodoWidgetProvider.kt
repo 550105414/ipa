@@ -47,23 +47,24 @@ class TodoWidgetProvider : AppWidgetProvider() {
         val views = RemoteViews(context.packageName, R.layout.cardworkbench_widget)
         views.setOnClickPendingIntent(R.id.cardworkbench_widget_root, openApp(context, null))
         views.setTextViewText(R.id.cardworkbench_widget_count, tasks.size.toString())
+        views.setContentDescription(R.id.cardworkbench_widget_count, "已到时间，共 ${tasks.size} 项待办")
         views.removeAllViews(R.id.cardworkbench_widget_rows)
-        val height = manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 180)
+        val options = manager.getAppWidgetOptions(id)
+        val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 160).takeIf { it > 0 } ?: 160
+        val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 160).takeIf { it > 0 } ?: 160
         val fontScale = context.resources.configuration.fontScale.coerceAtLeast(1f)
-        var rowSpace = height - 44 - 54 * fontScale
-        var limit = 0
-        for (task in tasks.take(6)) {
-          val textHeight = if (task.dueAt == null) 16 * fontScale else 28 * fontScale + 3
-          val rowHeight = 14 + maxOf(25 * fontScale, textHeight)
-          if (limit > 0 && rowSpace < rowHeight) break
-          limit++
-          rowSpace -= rowHeight
-        }
-        tasks.take(limit).forEach { task ->
+        val layout = TodoWidgetLayout.plan(height, fontScale, tasks.map { it.dueAt != null })
+        // Keep the label and count readable at the narrowest size/large fonts.
+        views.setViewVisibility(R.id.cardworkbench_widget_icon, if (TodoWidgetLayout.showHeaderIcon(width, fontScale)) View.VISIBLE else View.GONE)
+        views.setViewVisibility(R.id.cardworkbench_widget_count, if (TodoWidgetLayout.showHeaderCount(width, fontScale, tasks.size)) View.VISIBLE else View.GONE)
+        views.setContentDescription(R.id.cardworkbench_widget_root, "全部待办，已到时间 ${tasks.size} 项，点击查看")
+        tasks.take(layout.visibleCount).forEach { task ->
           val row = RemoteViews(context.packageName, R.layout.cardworkbench_widget_row)
           row.setTextViewText(R.id.cardworkbench_widget_task_title, task.title)
           row.setTextColor(R.id.cardworkbench_widget_task_circle, accent(task.accent))
+          row.setViewVisibility(R.id.cardworkbench_widget_task_circle, if (width < 150 && fontScale > 1.3f) View.GONE else View.VISIBLE)
           row.setTextViewText(R.id.cardworkbench_widget_task_star, if (task.starred) "★" else "")
+          row.setViewVisibility(R.id.cardworkbench_widget_task_star, if (task.starred) View.VISIBLE else View.GONE)
           val due = task.dueLabel()
           row.setTextViewText(R.id.cardworkbench_widget_task_date, due.orEmpty())
           row.setViewVisibility(R.id.cardworkbench_widget_task_date, if (due == null) View.GONE else View.VISIBLE)
@@ -72,14 +73,16 @@ class TodoWidgetProvider : AppWidgetProvider() {
         }
         val empty = when {
           snapshot == null -> "打开工作台同步待办"
-          tasks.isNotEmpty() -> ""
-          snapshot.tasks.any { it.dueAt != null } -> "暂无已到时间的待办\n到时会在这里显示"
+          tasks.isNotEmpty() -> "点击查看 ${tasks.size} 项待办"
+          snapshot.tasks.any { it.dueAt != null } -> "暂无到期待办\n到时自动显示"
           snapshot.syncState == "unpaired" -> "打开工作台添加待办"
           else -> "全部完成啦\n点击添加新的待办"
         }
         views.setTextViewText(R.id.cardworkbench_widget_empty, empty)
-        views.setViewVisibility(R.id.cardworkbench_widget_empty, if (tasks.isEmpty()) View.VISIBLE else View.GONE)
-        views.setTextViewText(R.id.cardworkbench_widget_footer, if (tasks.size > limit) "还有 ${tasks.size - limit} 项 · 点击查看" else "点击打开工作台")
+        views.setInt(R.id.cardworkbench_widget_empty, "setMaxLines", layout.emptyMaxLines)
+        views.setViewVisibility(R.id.cardworkbench_widget_empty, if (layout.visibleCount == 0) View.VISIBLE else View.GONE)
+        views.setTextViewText(R.id.cardworkbench_widget_footer, "还有 ${layout.remainingCount} 项 · 点击查看")
+        views.setViewVisibility(R.id.cardworkbench_widget_footer, if (layout.showFooter) View.VISIBLE else View.GONE)
         manager.updateAppWidget(id, views)
       }
       TodoWidgetAlarms.schedule(context, snapshot, now)

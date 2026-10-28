@@ -1,6 +1,6 @@
 # iPhone 与安卓的数据互通
 
-适用：工作台 1.6.0（iOS build 12 / Android versionCode 12、13）。Android build 13 只调整小组件尺寸，无需重复更新 iPhone。请分别安装支持同步的两端版本；iPhone 旧版不能上传仅在本机保存的完整待办字段与密码库。
+适用：工作台 1.6.0（iOS build 12 / Android versionCode 12、13、14）。Android build 13、14 只调整小组件外观尺寸，无需重复更新 iPhone。请分别安装支持同步的两端版本；iPhone 旧版不能上传仅在本机保存的完整待办字段与密码库。
 
 ## 首次连接
 

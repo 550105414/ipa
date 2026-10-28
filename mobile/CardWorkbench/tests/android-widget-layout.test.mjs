@@ -5,6 +5,8 @@ import { readFile } from 'node:fs/promises';
 const native = new URL('../modules/cardworkbench-widget/android/src/main/', import.meta.url);
 const info = await readFile(new URL('res/xml/cardworkbench_widget_info.xml', native), 'utf8');
 const widget = await readFile(new URL('res/layout/cardworkbench_widget.xml', native), 'utf8');
+const card = await readFile(new URL('res/layout/cardworkbench_widget_card.xml', native), 'utf8');
+const legacy = await readFile(new URL('res/layout/cardworkbench_widget_legacy.xml', native), 'utf8');
 const row = await readFile(new URL('res/layout/cardworkbench_widget_row.xml', native), 'utf8');
 const provider = await readFile(new URL('java/expo/modules/cardworkbenchwidget/TodoWidgetProvider.kt', native), 'utf8');
 const budget = await readFile(new URL('java/expo/modules/cardworkbenchwidget/TodoWidgetLayout.kt', native), 'utf8');
@@ -26,13 +28,13 @@ test('Android widget defaults to 2×2 and can resize down without the old 180dp 
 });
 
 test('compact XML stays aligned with native line-height budget and single-line task fields', () => {
-  assert.match(widget, /android:padding="12dp"/);
-  assert.match(widget, /android:minHeight="26dp"/);
-  assert.match(widget, /android:text="全部" android:textSize="18sp"/);
-  assert.match(view(widget, 'cardworkbench_widget_count'), /android:textSize="12sp"/);
-  assert.match(view(widget, 'cardworkbench_widget_empty'), /android:textSize="12sp"/);
-  assert.match(view(widget, 'cardworkbench_widget_footer'), /android:textSize="10sp"/);
-  assert.match(view(widget, 'cardworkbench_widget_footer'), /android:visibility="gone"/);
+  assert.match(card, /android:padding="12dp"/);
+  assert.match(card, /android:minHeight="26dp"/);
+  assert.match(card, /android:text="全部" android:textSize="18sp"/);
+  assert.match(view(card, 'cardworkbench_widget_count'), /android:textSize="12sp"/);
+  assert.match(view(card, 'cardworkbench_widget_empty'), /android:textSize="12sp"/);
+  assert.match(view(card, 'cardworkbench_widget_footer'), /android:textSize="10sp"/);
+  assert.match(view(card, 'cardworkbench_widget_footer'), /android:visibility="gone"/);
   assert.match(row, /android:paddingTop="4dp" android:paddingBottom="4dp"/);
   for (const [id, size] of [['title', 14], ['date', 10]]) {
     const field = view(row, `cardworkbench_widget_task_${id}`);
@@ -47,8 +49,41 @@ test('compact XML stays aligned with native line-height budget and single-line t
   assert.match(budget, /line\(14f, scale\).*2f \+ line\(10f, scale\)/);
 });
 
-test('provider renders only budgeted rows without changing due filtering, snapshot or alarms', () => {
-  assert.match(provider, /TodoWidgetLayout\.plan\(height, fontScale, tasks\.map \{ it\.dueAt != null \}\)/);
+test('transparent outer layouts center the white card instead of painting the whole launcher slot', () => {
+  for (const wrapper of [widget, legacy]) {
+    assert.match(wrapper, /^<FrameLayout\b/);
+    assert.match(view(wrapper, 'cardworkbench_widget_root'), /android:background="@android:color\/transparent"/);
+    assert.match(wrapper, /<include layout="@layout\/cardworkbench_widget_card"/);
+    assert.match(wrapper, /android:layout_gravity="center"/);
+    assert.doesNotMatch(wrapper, /android:background="@drawable\/cardworkbench_widget_background"/);
+    assert.doesNotMatch(wrapper, /ConstraintLayout|RelativeLayout|setHeight/);
+  }
+  assert.match(widget, /android:layout_width="160dp" android:layout_height="160dp"/);
+  assert.match(legacy, /android:layout_width="match_parent" android:layout_height="match_parent"/);
+  assert.match(view(card, 'cardworkbench_widget_card'), /android:background="@drawable\/cardworkbench_widget_background"/);
+  assert.match(info, /android:initialLayout="@layout\/cardworkbench_widget"/);
+  assert.match(info, /android:previewLayout="@layout\/cardworkbench_widget"/);
+});
+
+test('provider sizes both white-card axes in DIP on API 31+, with public padding fallback', () => {
+  assert.match(provider, /if \(Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.S\) \{\s*RemoteViews/);
+  for (const axis of ['Width', 'Height']) {
+    assert.match(provider, new RegExp(`setViewLayout${axis}\\(R\\.id\\.cardworkbench_widget_card, square\\.sideDp, TypedValue\\.COMPLEX_UNIT_DIP\\)`));
+  }
+  assert.match(provider, /AppWidgetManager\.OPTION_APPWIDGET_SIZES/);
+  assert.match(provider, /TodoWidgetGeometry\.exactSizes/);
+  assert.match(provider, /RemoteViews\(exact\.associate/);
+  assert.match(provider, /TodoWidgetGeometry\.fallback/);
+  assert.match(provider, /RemoteViews\(sizedViews\(context, snapshot, tasks, sizes\.landscape\), portrait\)/);
+  assert.match(provider, /setViewPadding\(R\.id\.cardworkbench_widget_root, inset\.left, inset\.top, inset\.right, inset\.bottom\)/);
+  assert.doesNotMatch(provider, /setInt\([^\n]*["']set(?:Height|Width)["']/);
+  assert.doesNotMatch(provider, /getDefaultPaddingForWidget|miui|maml/i);
+});
+
+test('provider renders only square-budgeted rows without changing due filtering, snapshot or alarms', () => {
+  assert.match(provider, /val side = square\.budgetSideDp/);
+  assert.match(provider, /TodoWidgetLayout\.plan\(side, fontScale, tasks\.map \{ it\.dueAt != null \}\)/);
+  assert.match(provider, /TodoWidgetLayout\.showHeaderCount\(side, fontScale, tasks\.size\)/);
   assert.match(provider, /tasks\.take\(layout\.visibleCount\)/);
   assert.match(provider, /filter \{ it\.isVisible\(now\) \}/);
   assert.match(provider, /TodoWidgetAlarms\.schedule\(context, snapshot, now\)/);

@@ -1,0 +1,9 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/cardworkbench_widget_root"
+  android:layout_width="match_parent" android:layout_height="match_parent"
+  android:background="@android:color/transparent">
+  <!-- API 24–30: public RemoteViews padding leaves the longer axis transparent. -->
+  <include layout="@layout/cardworkbench_widget_card"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:layout_gravity="center" />
+</FrameLayout>

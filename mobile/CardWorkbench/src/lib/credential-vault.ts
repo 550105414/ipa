@@ -1,6 +1,8 @@
 import CredentialVault from '@credential-vault';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { emitAccountSyncChange } from '@/lib/account-sync-events';
+
 import type {
   CredentialCategory,
   CredentialEntry,
@@ -60,11 +62,18 @@ export async function getCredentialCategories(
   }));
 }
 
-export async function getCredentials(database: SQLiteDatabase): Promise<CredentialEntry[]> {
+export async function getCredentials(database: SQLiteDatabase, guard?: () => Promise<void>): Promise<CredentialEntry[]> {
   const rows = await database.getAllAsync<CredentialRow>(
     `${credentialSelect()} ORDER BY entry.updated_at DESC, entry.id DESC`,
   );
-  return Promise.all(rows.map(decryptRow));
+  const entries: CredentialEntry[] = [];
+  for (const row of rows) {
+    await guard?.();
+    const entry = await decryptRow(row);
+    await guard?.();
+    entries.push(entry);
+  }
+  return entries;
 }
 
 export async function getCredential(
@@ -87,25 +96,14 @@ export async function saveCredential(
   const plaintext = JSON.stringify(normalizeSecret(input.secret));
   const encrypted = await CredentialVault.encryptAsync(id, plaintext);
 
-  if (input.id) {
-    await database.runAsync(
-      `UPDATE credential_entries
-       SET platform_name = ?, category_id = ?, icon = ?, encrypted_payload = ?,
-           key_version = ?, updated_at = ?
-       WHERE id = ?`,
-      input.platformName.trim(),
-      input.categoryId,
-      input.icon,
-      encrypted.ciphertext,
-      encrypted.keyVersion,
-      now,
-      id,
-    );
-  } else {
-    await database.runAsync(
+  await database.runAsync(
       `INSERT INTO credential_entries
         (id, platform_name, category_id, icon, encrypted_payload, key_version, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET platform_name = excluded.platform_name,
+         category_id = excluded.category_id, icon = excluded.icon,
+         encrypted_payload = excluded.encrypted_payload, key_version = excluded.key_version,
+         updated_at = excluded.updated_at`,
       id,
       input.platformName.trim(),
       input.categoryId,
@@ -114,13 +112,14 @@ export async function saveCredential(
       encrypted.keyVersion,
       now,
       now,
-    );
-  }
+  );
+  emitAccountSyncChange('local-changed');
   return id;
 }
 
 export async function deleteCredential(database: SQLiteDatabase, id: string): Promise<void> {
   await database.runAsync('DELETE FROM credential_entries WHERE id = ?', id);
+  emitAccountSyncChange('local-changed');
 }
 
 export async function generateStrongPassword(

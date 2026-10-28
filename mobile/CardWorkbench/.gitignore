@@ -22,6 +22,11 @@ expo-env.d.ts
 *.keychain
 *.keychain-db
 *.ipa
+*.apk
+*.aab
+*.keystore
+*.credential.xml
+.gradle/
 *.xcarchive
 build/
 DerivedData/

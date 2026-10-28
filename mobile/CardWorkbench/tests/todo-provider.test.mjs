@@ -21,7 +21,7 @@ const cloudResult = { paired: true, pulled: 0, pushed: 0, remoteCount: 1 };
 // state transitions without loading React Native into Node or copying its logic.
 async function providerHarness({ readTasks = async () => [task()], synchronize = async () => cloudResult,
   widget = async () => ({ total: 1, updatedAt: '2026-10-07T02:00:00.000Z' }),
-  notifications = async () => undefined } = {}) {
+  notifications = async () => undefined, unlocked = true, appState = 'active' } = {}) {
   const slots = [];
   let cursor = 0;
   const react = {
@@ -43,11 +43,13 @@ async function providerHarness({ readTasks = async () => [task()], synchronize =
   const provider = await loadTypeScript('src/providers/todo-provider.tsx', {
     react,
     'react/jsx-runtime': { jsx: (_, props) => props },
-    'react-native': { AppState: { addEventListener: () => ({ remove() {} }) } },
+    'react-native': { AppState: { currentState: appState, addEventListener: () => ({ remove() {} }) } },
     'expo-sqlite': { useSQLiteContext: () => ({}) },
     '@/lib/database': { getCategories: async () => [], getTasks: readTasks },
     '@/lib/date': { formatDueDate: (value) => value },
     '@/lib/task-sync': { syncWorkspaceTasks: synchronize },
+    '@/lib/account-sync': { syncAccountData: async () => undefined },
+    '@/lib/face-id-session': { loadValidFaceIdSession: async () => unlocked ? Date.now() + 60000 : null, subscribeToFaceIdSessionGranted: () => () => {} },
     '@/lib/todo-notifications': { syncTaskNotifications: notifications },
     '@/widgets/todo-widget': { syncTodoWidget: widget },
   });
@@ -84,6 +86,18 @@ test('existing SQLite tasks are visible before a delayed cloud request completes
   cloud.resolve(cloudResult);
   await operation;
   assert.equal(harness.render().syncStatus, 'ready');
+});
+
+test('a locked or background app renders local SQLite data without starting automatic core sync', async () => {
+  let requests = 0;
+  for (const options of [{ unlocked: false }, { appState: 'background' }]) {
+    const harness = await providerHarness({ ...options, synchronize: async () => { requests += 1; return cloudResult; } });
+    await harness.render().refresh();
+    assert.equal(harness.render().syncStatus, 'paused');
+    assert.equal(harness.render().isLoading, false);
+    assert.equal(harness.render().tasks[0].title, '本机待办');
+  }
+  assert.equal(requests, 0);
 });
 
 test('WidgetKit latency does not hide the local task list behind loading', async () => {

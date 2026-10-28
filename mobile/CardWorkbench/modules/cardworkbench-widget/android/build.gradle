@@ -1,0 +1,19 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+dependencies {
+  testImplementation 'junit:junit:4.13.2'
+}
+
+group = 'expo.modules.cardworkbenchwidget'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.cardworkbenchwidget"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}

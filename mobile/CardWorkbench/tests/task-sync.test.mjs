@@ -34,6 +34,7 @@ function createServer(initial = [], intercept = async () => undefined) {
       body: init.body ? JSON.parse(init.body) : null };
     requests.push(request);
     await intercept(request);
+    if (path === '/api/mobile-sync') return { scope: 'c'.repeat(64) };
     if (request.method === 'GET') {
       return { items: structuredClone([...tasks.values()]), nextCursor: null };
     }

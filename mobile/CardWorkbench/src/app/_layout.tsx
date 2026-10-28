@@ -6,6 +6,7 @@ import { migrateDatabase } from '@/lib/database';
 import { TodoProvider } from '@/providers/todo-provider';
 import { PrivacyGate } from '@/components/privacy-gate';
 import { NotificationNavigation } from '@/components/notification-navigation';
+import { AccountSyncBridge } from '@/components/account-sync-card';
 
 export default function RootLayout() {
   return (
@@ -85,6 +86,10 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
+              name="sync"
+              options={{ headerShown: true, title: '跨设备加密同步', headerShadowVisible: false }}
+            />
+            <Stack.Screen
               name="pair"
               options={{ headerShown: true, title: '连接工作台', headerShadowVisible: false }}
             />
@@ -97,6 +102,7 @@ export default function RootLayout() {
               }}
             />
           </Stack>
+          <AccountSyncBridge />
           <NotificationNavigation />
           <StatusBar style="dark" />
         </TodoProvider>

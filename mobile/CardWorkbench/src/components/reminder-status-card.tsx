@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import Constants from 'expo-constants';
 
 import { SymbolIcon } from '@/components/symbol-icon';
 import { formatDueDate } from '@/lib/date';
 import {
   enableTaskReminders,
   getReminderStatus,
+  ANDROID_REMINDER_CHANNEL_ID,
+  openExactReminderSettings,
   scheduleReminderTest,
   type ReminderStatus,
 } from '@/lib/todo-notifications';
@@ -50,9 +54,33 @@ export function ReminderStatusCard() {
 
   const openSettings = async () => {
     try {
+      const androidPackage = Constants.expoConfig?.android?.package;
+      if (Platform.OS === 'android' && androidPackage) {
+        try {
+          await Linking.sendIntent('android.settings.CHANNEL_NOTIFICATION_SETTINGS', [
+            { key: 'android.provider.extra.APP_PACKAGE', value: androidPackage },
+            { key: 'android.provider.extra.CHANNEL_ID', value: ANDROID_REMINDER_CHANNEL_ID },
+          ]);
+          return;
+        } catch {
+          // Some manufacturer settings apps do not support the channel intent.
+        }
+      }
       await Linking.openSettings();
     } catch {
-      Alert.alert('打开通知设置', '请到 iPhone 设置 → 通知 → 工作台，开启允许通知、锁定屏幕和声音。');
+      Alert.alert('打开通知设置', Platform.OS === 'android'
+        ? '请到系统设置 → 应用 → 工作台 → 通知，开启通知、待办到期提醒、锁屏显示和声音。'
+        : '请到 iPhone 设置 → 通知 → 工作台，开启允许通知、锁定屏幕和声音。');
+    }
+  };
+
+  const openAlarmSettings = async () => {
+    try {
+      if (await openExactReminderSettings()) return;
+      await Linking.openSettings();
+      Alert.alert('闹钟与提醒权限', '请在系统设置 → 特殊应用权限 → 闹钟与提醒中，允许工作台。未允许时仍会预定提醒，但可能被系统推迟。');
+    } catch {
+      Alert.alert('闹钟与提醒权限', '请在系统设置中搜索“闹钟与提醒”，允许工作台；部分手机也需要允许后台运行。');
     }
   };
 
@@ -70,7 +98,10 @@ export function ReminderStatusCard() {
         ]);
       } else if (test) {
         await scheduleReminderTest();
-        Alert.alert('10 秒后测试提醒', '现在可以按侧边键锁屏，查看“工作台”的通知卡片。如果没有声音或没有亮屏，请检查声音、静音开关和专注模式。');
+        Alert.alert(Platform.OS === 'android' ? '约 10 秒后测试提醒' : '10 秒后测试提醒',
+          Platform.OS === 'android'
+            ? '现在可以锁屏，查看“工作台”的通知卡片。未允许“闹钟与提醒”或受到省电限制时，系统可能推迟；声音、锁屏显示和亮屏也由手机设置控制。'
+            : '现在可以按侧边键锁屏，查看“工作台”的通知卡片。如果没有声音或没有亮屏，请检查声音、静音开关和专注模式。');
       }
     } catch (caught) {
       if (mounted.current) setError(caught instanceof Error ? caught.message : '提醒预定失败，请重试。');
@@ -88,7 +119,7 @@ export function ReminderStatusCard() {
       status.authorization === 'not-requested' ? '开启后，到时间显示通知卡片' :
         !status.granted ? '未允许通知，请打开系统设置' :
           status.authorization === 'quiet' ? '当前为静默通知，请在设置中开启提醒' :
-            `已预定 ${status.scheduledCount} 条到期提醒`;
+            `已预定 ${status.scheduledCount} 条到期提醒${status.exactAlarm === false ? '（系统可能延迟）' : ''}`;
 
   return (
     <View style={styles.card}>
@@ -117,8 +148,17 @@ export function ReminderStatusCard() {
         </Text>
       ) : null}
       <Text selectable style={styles.note}>
-        选择具体时间按时提醒；只选日期默认上午 9:00。锁屏卡片和声音受系统通知设置、静音及专注模式控制。
+        {Platform.OS === 'android'
+          ? '只选日期默认上午 9:00 提醒。请允许系统通知和锁屏显示；省电、后台限制、勿扰模式或强行停止 App 都可能影响提醒。'
+          : '选择具体时间按时提醒；只选日期默认上午 9:00。锁屏卡片和声音受系统通知设置、静音及专注模式控制。'}
       </Text>
+      {Platform.OS === 'android' && status?.granted ? (
+        <Text selectable style={[styles.note, status.exactAlarm !== true && styles.warning]}>
+          {status.exactAlarm === true
+            ? '闹钟与提醒权限已允许；实际送达仍受系统和手机后台策略影响。'
+            : '未确认精确提醒权限。提醒仍会预定；未允许“闹钟与提醒”时会使用系统非精确排程，可能延迟。'}
+        </Text>
+      ) : null}
       {failure ? <Text selectable style={styles.error}>{failure}</Text> : null}
       {status?.supported !== false ? (
         <View style={styles.actions}>
@@ -139,6 +179,15 @@ export function ReminderStatusCard() {
             style={({ pressed }) => [styles.button, styles.secondaryButton, { opacity: busy || pressed ? 0.55 : 1 }]}>
             <Text style={styles.buttonLabel}>10 秒测试</Text>
           </Pressable>
+          {Platform.OS === 'android' ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => void openAlarmSettings()}
+              style={({ pressed }) => [styles.button, styles.secondaryButton, { opacity: busy || pressed ? 0.55 : 1 }]}>
+              <Text style={styles.buttonLabel}>闹钟与提醒设置</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>

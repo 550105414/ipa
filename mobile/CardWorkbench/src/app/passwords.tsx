@@ -13,12 +13,16 @@ import {
 
 import { SymbolIcon } from '@/components/symbol-icon';
 import { getCredentialCategories, getCredentials } from '@/lib/credential-vault';
+import { AccountSyncCard } from '@/components/account-sync-card';
+import { subscribeAccountSyncChanges } from '@/lib/account-sync-events';
+import { useTodos } from '@/providers/todo-provider';
 import { colors, layout } from '@/theme/colors';
 import type { CredentialCategory, CredentialEntry } from '@/types/credential';
 
 export default function PasswordsScreen() {
   const database = useSQLiteContext();
   const router = useRouter();
+  const { refresh: refreshWorkspace } = useTodos();
   const [entries, setEntries] = useState<CredentialEntry[]>([]);
   const [categories, setCategories] = useState<CredentialCategory[]>([]);
   const [query, setQuery] = useState('');
@@ -43,6 +47,7 @@ export default function PasswordsScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
+      return subscribeAccountSyncChanges((event) => { if (event === 'imported' || event === 'local-changed') void load(); });
     }, [load]),
   );
 
@@ -65,6 +70,7 @@ export default function PasswordsScreen() {
   const refresh = async () => {
     setIsRefreshing(true);
     try {
+      await refreshWorkspace();
       await load();
     } finally {
       setIsRefreshing(false);
@@ -76,6 +82,7 @@ export default function PasswordsScreen() {
       contentInsetAdjustmentBehavior="automatic"
       refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void refresh()} />}
       contentContainerStyle={styles.content}>
+      <AccountSyncCard />
       <View style={styles.topActions}>
         <View style={styles.searchBox}>
           <SymbolIcon name="magnifyingglass" color={colors.secondaryLabel} size={18} />

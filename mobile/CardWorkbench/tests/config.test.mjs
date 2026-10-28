@@ -20,16 +20,16 @@ test('Expo iOS release configuration stays pinned', async () => {
   );
 
   assert.equal(appConfig.expo.name, '工作台');
-  assert.equal(appConfig.expo.version, '1.5.0');
+  assert.equal(appConfig.expo.version, '1.6.0');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '11');
+  assert.equal(appConfig.expo.ios.buildNumber, '12');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
   assert.match(packageJson.dependencies.expo, /^~55\./);
-  assert.equal(packageJson.version, '1.5.0');
-  assert.equal(packageLock.version, '1.5.0');
-  assert.equal(packageLock.packages[''].version, '1.5.0');
+  assert.equal(packageJson.version, '1.6.0');
+  assert.equal(packageLock.version, '1.6.0');
+  assert.equal(packageLock.packages[''].version, '1.6.0');
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',
@@ -252,7 +252,7 @@ test('fresh installs stay empty and legacy demo cleanup is all-or-nothing', asyn
     /const LEGACY_DEMO_TASKS:[\s\S]*?= \[([\s\S]*?)\n\];/,
   );
 
-  assert.match(databaseSource, /const DATABASE_VERSION = 6/);
+  assert.match(databaseSource, /const DATABASE_VERSION = 7/);
   assert.match(databaseSource, /SELECT '订购桶装水',[\s\S]*?WHERE 0;/);
   assert.ok(signatureMatch);
   const ids = [...signatureMatch[1].matchAll(/\bid: (\d+)/g)].map((match) => Number(match[1]));

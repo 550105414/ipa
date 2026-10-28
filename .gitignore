@@ -30,6 +30,12 @@ node_modules/
 *.keychain
 *.keychain-db
 *.ipa
+*.apk
+*.aab
+*.jks
+*.keystore
+*.credential.xml
+.gradle/
 *.xcarchive
 /DerivedData/
 /Payload/

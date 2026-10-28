@@ -20,6 +20,8 @@ import {
   updateTask as updateTaskInDatabase,
 } from '@/lib/database';
 import { formatDueDate } from '@/lib/date';
+import { syncAccountData } from '@/lib/account-sync';
+import { loadValidFaceIdSession, subscribeToFaceIdSessionGranted } from '@/lib/face-id-session';
 import { syncWorkspaceTasks, type TaskSyncResult } from '@/lib/task-sync';
 import { syncTaskNotifications } from '@/lib/todo-notifications';
 import type { NewTodoInput, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
@@ -32,6 +34,7 @@ export type TodoSyncStatus =
   | 'ready'
   | 'unpaired'
   | 'offline'
+  | 'paused'
   | 'widget-error';
 
 export type TodoWidgetStatus = 'idle' | 'updating' | 'updated' | 'error';
@@ -180,6 +183,15 @@ export function TodoProvider({ children }: PropsWithChildren) {
         throw error;
       }
 
+      if (AppState.currentState !== 'active' || !(await loadValidFaceIdSession())) {
+        if (generation === refreshGeneration.current) {
+          setSyncStatus('paused');
+          setSyncMessage('本机待办已加载；网络同步已暂停，解锁工作台后自动继续。');
+        }
+        if (options.requireCloud) throw new Error('请先解锁工作台，再进行网络同步。');
+        return syncMetricsRef.current;
+      }
+
       let cloud: TaskSyncResult = {
         paired: syncMetricsRef.current.paired,
         pulled: 0,
@@ -189,6 +201,9 @@ export function TodoProvider({ children }: PropsWithChildren) {
       let cloudError: unknown;
       try {
         cloud = await syncWorkspaceTasks(database);
+        // Full-field/password sync is optional and independently reports errors;
+        // a wrong sync password must never disable offline/basic task use.
+        if (cloud.paired) await syncAccountData(database, { skipCore: true }).catch(() => undefined);
       } catch (error) {
         cloudError = error;
       }
@@ -222,14 +237,14 @@ export function TodoProvider({ children }: PropsWithChildren) {
         } else {
           setSyncStatus('ready');
           setSyncMessage(
-            `已同步：云端 ${cloud.remoteCount} 条，本机 ${local.localCount} 条，小组件 ${local.widgetCount} 条`,
+            `基础待办已同步：云端 ${cloud.remoteCount} 条，本机 ${local.localCount} 条，小组件 ${local.widgetCount} 条；完整字段和密码库状态见“加密同步”。`,
           );
         }
 
         if (options.requireCloud && (cloudError || !cloud.paired)) {
           throw cloudError instanceof Error
             ? cloudError
-            : new Error('这台 iPhone 尚未完成工作台配对。');
+            : new Error('这台手机尚未完成工作台配对。');
         }
         return metrics;
       } catch (error) {
@@ -273,6 +288,10 @@ export function TodoProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     void refresh().catch(() => undefined);
   }, [refresh]);
+
+  useEffect(() => subscribeToFaceIdSessionGranted(() => {
+    void refresh().catch(() => undefined);
+  }), [refresh]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {

@@ -1,4 +1,5 @@
-import { index, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const customers = sqliteTable(
   "customers",
@@ -136,5 +137,18 @@ export const deviceTokens = sqliteTable(
       table.ownerId,
       table.revokedAt,
     ),
+  ],
+);
+
+export const mobileSyncVaults = sqliteTable(
+  "mobile_sync_vaults",
+  {
+    ownerId: text("owner_id").primaryKey().notNull(),
+    revision: integer("revision").notNull(),
+    envelopeJson: text("envelope_json").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    check("mobile_sync_revision_range", sql`${table.revision} >= 1 AND ${table.revision} <= 9007199254740991`),
   ],
 );

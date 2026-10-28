@@ -1,0 +1,152 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android-apk:
+    name: Build signed Android APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile/CardWorkbench
+    env:
+      CI: "1"
+      APP_ID: com.xiaoke.salesworkspace
+      APP_VERSION: 1.6.0
+      APP_BUILD: "12"
+      SIGNING_CERT_SHA256: 7d3a7242735b21ba70ee25175c448c37f8eb0697d86746014d7fd802ca7ddf89
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20.19.x
+          cache: npm
+          cache-dependency-path: mobile/CardWorkbench/package-lock.json
+
+      - name: Set up Java 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Prepare directories
+        run: mkdir -p "$RUNNER_TEMP/apk" "$RUNNER_TEMP/android-logs"
+
+      - name: Ensure Android SDK tools
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-36' 'build-tools;36.0.0' \
+            > "$RUNNER_TEMP/android-logs/sdk-install.log" 2>&1
+
+      - name: Install dependencies
+        run: npm ci --no-audit
+
+      - name: TypeScript, lint and behavior tests
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit
+          npm run lint
+          npm test
+          npx expo install --check
+          npx expo-doctor
+
+      - name: Generate Android native project
+        run: |
+          set -euo pipefail
+          npx expo prebuild --platform android --clean --no-install \
+            2>&1 | tee "$RUNNER_TEMP/android-logs/prebuild.log"
+          npx expo-modules-autolinking resolve --platform android --json \
+            > "$RUNNER_TEMP/android-logs/autolinking.json"
+          python3 - "$RUNNER_TEMP/android-logs/autolinking.json" <<'PY'
+          import json, sys
+          data = json.dumps(json.load(open(sys.argv[1])))
+          for required in ('expo.modules.credentialvault.CardWorkbenchCredentialVaultModule',
+                           'expo.modules.cardworkbenchwidget.CardWorkbenchWidgetModule'):
+              if required not in data:
+                  raise SystemExit(f'Missing Android native module: {required}')
+          PY
+
+      - name: Build standalone Release APK and native unit tests
+        run: |
+          set -euo pipefail
+          cd android
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease \
+            :credential-vault:testReleaseUnitTest :cardworkbench-widget:testReleaseUnitTest \
+            :credential-vault:lintRelease :cardworkbench-widget:lintRelease \
+            '-PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64' \
+            --no-daemon --console=plain --stacktrace \
+            2>&1 | tee "$RUNNER_TEMP/android-logs/gradle.log"
+
+      - name: Sign with persistent private release key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          keystore="$RUNNER_TEMP/cardworkbench-release.p12"
+          trap 'rm -f -- "$keystore"' EXIT
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          build_tools="$ANDROID_HOME/build-tools/36.0.0"
+          test -x "$build_tools/apksigner"
+          input_apk=android/app/build/outputs/apk/release/app-release.apk
+          output_apk="$RUNNER_TEMP/apk/CardWorkbench-1.6.0-build12.apk"
+          test -s "$input_apk"
+          "$build_tools/apksigner" sign --ks "$keystore" --ks-type PKCS12 \
+            --ks-key-alias cardworkbench \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --out "$output_apk" "$input_apk"
+          "$build_tools/apksigner" verify --verbose --print-certs "$output_apk" \
+            | tee "$RUNNER_TEMP/android-logs/apk-signature.log"
+          actual_cert="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/android-logs/apk-signature.log")"
+          test "$actual_cert" = "$SIGNING_CERT_SHA256"
+          "$build_tools/zipalign" -c -P 16 4 "$output_apk"
+          "$build_tools/aapt" dump badging "$output_apk" \
+            > "$RUNNER_TEMP/android-logs/apk-badging.log"
+          grep -Fq "name='$APP_ID' versionCode='$APP_BUILD' versionName='$APP_VERSION'" \
+            "$RUNNER_TEMP/android-logs/apk-badging.log"
+          if grep -q '^application-debuggable' "$RUNNER_TEMP/android-logs/apk-badging.log"; then
+            echo 'Release APK must not be debuggable.' >&2
+            exit 1
+          fi
+          shasum -a 256 "$output_apk" | tee "$RUNNER_TEMP/android-logs/apk-sha256.log"
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: CardWorkbench-Android-${{ github.run_number }}
+          path: ${{ runner.temp }}/apk/*.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Upload Android build logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: CardWorkbench-Android-logs-${{ github.run_number }}
+          path: ${{ runner.temp }}/android-logs/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Clean signing material
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/cardworkbench-release.p12"

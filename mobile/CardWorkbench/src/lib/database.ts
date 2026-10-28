@@ -1,10 +1,10 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { parseTodoDueDate } from '@/lib/date';
+import { localDueToRemote, parseTodoDueDate } from '@/lib/date';
 import { getNextRecurringDueAt } from '@/lib/task-recurrence';
 import type { NewTodoInput, RepeatRule, TodoCategory, TodoTask, UpdateTodoInput } from '@/types/todo';
 
-const DATABASE_VERSION = 6;
+const DATABASE_VERSION = 7;
 
 // Short local writes, including completion + generation of its next occurrence,
 // run in order. An exclusive transaction never races another local mutation.
@@ -292,6 +292,47 @@ export async function migrateDatabase(database: SQLiteDatabase) {
       ON todo_items(recurrence_parent_id) WHERE recurrence_parent_id IS NOT NULL;`);
   }
 
+  if (currentVersion < 7) {
+    const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(todo_items)');
+    if (!columns.some((column) => column.name === 'metadata_initialized')) {
+      await database.execAsync('ALTER TABLE todo_items ADD COLUMN metadata_initialized INTEGER NOT NULL DEFAULT 0;');
+    }
+    // Resume safely if an earlier attempt added the column but stopped before
+    // marking legacy rows. user_version < 7 means no new-style imports exist yet.
+    await database.execAsync('UPDATE todo_items SET metadata_initialized = 1;');
+    if (!columns.some((column) => column.name === 'metadata_core_due_at')) {
+      await database.execAsync('ALTER TABLE todo_items ADD COLUMN metadata_core_due_at TEXT;');
+    }
+    if (!columns.some((column) => column.name === 'metadata_raw_due_at')) {
+      await database.execAsync('ALTER TABLE todo_items ADD COLUMN metadata_raw_due_at TEXT;');
+    }
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS account_sync_baselines (
+        scope TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
+        local_hash TEXT, remote_hash TEXT, PRIMARY KEY(scope, kind, id)
+      );
+      CREATE TABLE IF NOT EXISTS account_sync_deleted_credentials (
+        id TEXT PRIMARY KEY NOT NULL, deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS account_sync_revision (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL);
+      INSERT OR IGNORE INTO account_sync_revision (id, revision) VALUES (1, 0);
+      CREATE TRIGGER IF NOT EXISTS account_sync_credential_tombstone AFTER DELETE ON credential_entries
+      BEGIN
+        INSERT OR REPLACE INTO account_sync_deleted_credentials (id, deleted_at) VALUES (OLD.id, CURRENT_TIMESTAMP);
+      END;
+      CREATE TRIGGER IF NOT EXISTS account_sync_credential_restore AFTER INSERT ON credential_entries
+      BEGIN
+        DELETE FROM account_sync_deleted_credentials WHERE id = NEW.id;
+      END;
+    `);
+    for (const table of ['todo_items', 'todo_categories', 'credential_entries', 'credential_categories', 'account_sync_deleted_credentials']) {
+      for (const event of ['INSERT', 'UPDATE', 'DELETE']) {
+        await database.execAsync(`CREATE TRIGGER IF NOT EXISTS account_sync_revision_${table}_${event}
+          AFTER ${event} ON ${table} BEGIN UPDATE account_sync_revision SET revision = revision + 1 WHERE id = 1; END;`);
+      }
+    }
+  }
+
   await database.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
 }
 
@@ -420,8 +461,8 @@ export async function insertTask(database: SQLiteDatabase, input: NewTodoInput) 
   const updatedAt = new Date().toISOString();
   return enqueueLocalWrite(database, () => database.runAsync(
     `INSERT INTO todo_items
-      (title, notes, category_id, is_starred, due_at, repeat_rule, recurrence_anchor_due_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      (title, notes, category_id, is_starred, due_at, repeat_rule, recurrence_anchor_due_at, updated_at, metadata_initialized, metadata_core_due_at, metadata_raw_due_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     input.title.trim(),
     input.notes?.trim() || null,
     input.categoryId,
@@ -430,6 +471,8 @@ export async function insertTask(database: SQLiteDatabase, input: NewTodoInput) 
     repeatRule,
     repeatRule === 'none' ? null : input.dueAt,
     updatedAt,
+    localDueToRemote(input.dueAt),
+    input.dueAt,
   ));
 }
 
@@ -439,10 +482,13 @@ export async function updateTask(database: SQLiteDatabase, input: UpdateTodoInpu
   if (input.repeatRule !== undefined) validateRepeatRule(input.repeatRule, input.dueAt);
   await enqueueLocalWrite(database, () => database.runAsync(
     `UPDATE todo_items
-     SET title = ?,
+     SET metadata_initialized = 1, title = ?,
          notes = ?,
          category_id = ?,
          is_starred = ?,
+         metadata_core_due_at = CASE WHEN ? IS NULL THEN NULL
+           WHEN due_at IS ? AND metadata_raw_due_at IS due_at THEN COALESCE(metadata_core_due_at, ?) ELSE ? END,
+         metadata_raw_due_at = ?,
          due_at = ?,
          recurrence_anchor_due_at = CASE
            WHEN COALESCE(?, repeat_rule) = 'none' OR ? IS NULL THEN NULL
@@ -458,6 +504,11 @@ export async function updateTask(database: SQLiteDatabase, input: UpdateTodoInpu
     input.notes?.trim() || null,
     input.categoryId,
     input.isStarred ? 1 : 0,
+    input.dueAt,
+    input.dueAt,
+    localDueToRemote(input.dueAt),
+    localDueToRemote(input.dueAt),
+    input.dueAt,
     input.dueAt,
     input.repeatRule ?? null,
     input.dueAt,
@@ -476,7 +527,7 @@ export async function toggleTaskStar(database: SQLiteDatabase, id: number) {
   const updatedAt = new Date().toISOString();
   await enqueueLocalWrite(database, () => database.runAsync(
     `UPDATE todo_items
-     SET is_starred = CASE is_starred WHEN 1 THEN 0 ELSE 1 END,
+     SET metadata_initialized = 1, is_starred = CASE is_starred WHEN 1 THEN 0 ELSE 1 END,
          updated_at = ?
      WHERE id = ?`,
     updatedAt,
@@ -519,10 +570,10 @@ export async function toggleTaskCompletion(database: SQLiteDatabase, id: number)
     // existing child untouched, even if the user has edited or completed it.
     await transaction.runAsync(`INSERT OR IGNORE INTO todo_items
       (title, notes, label, category_id, is_starred, due_at, repeat_rule,
-       recurrence_anchor_due_at, recurrence_parent_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       recurrence_anchor_due_at, recurrence_parent_id, created_at, updated_at, metadata_initialized, metadata_core_due_at, metadata_raw_due_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     task.title, task.notes, task.label, task.category_id, task.is_starred, nextDueAt,
-    task.repeat_rule, task.recurrence_anchor_due_at ?? task.due_at, id, updatedAt, updatedAt);
+    task.repeat_rule, task.recurrence_anchor_due_at ?? task.due_at, id, updatedAt, updatedAt, localDueToRemote(nextDueAt), nextDueAt);
   }));
 }
 

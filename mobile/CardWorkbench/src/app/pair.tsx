@@ -110,7 +110,7 @@ export default function PairScreen() {
 
   const clear = async () => {
     await clearWorkspaceSession();
-    setMessage('本机配对信息已清除。请在电脑工作台重新生成配对链接，并用这台 iPhone 打开。');
+    setMessage('本机配对信息已清除。请在电脑工作台重新生成配对链接，并用这台手机打开。');
     setStatus('idle');
   };
 
@@ -155,10 +155,16 @@ export default function PairScreen() {
           style={{ color: colors.secondaryLabel, lineHeight: 22, textAlign: 'center' }}>
           {message ||
             (paired
-              ? '这台 iPhone 已取得独立设备凭证，可以直接读取和更新客户资料。'
-              : '请在电脑工作台生成一次性配对链接，再用这台 iPhone 打开。')}
+              ? '这台手机已取得独立设备凭证，可以直接读取和更新客户资料。两台手机互通密码库和完整待办，请再设置相同的加密同步密码。'
+              : '请在电脑工作台生成一次性配对链接，再用这台手机打开。每台手机单独配对到同一个账号，不复制另一台设备的登录凭证。')}
         </Text>
       </View>
+
+      {paired ? (
+        <Pressable accessibilityRole="button" onPress={() => router.push('/sync' as never)} style={{ minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: colors.card }}>
+          <Text style={{ color: colors.blue, fontWeight: '700' }}>设置 iPhone / 安卓加密同步</Text>
+        </Pressable>
+      ) : null}
 
       {paired ? (
         <Pressable

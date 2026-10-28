@@ -2,7 +2,7 @@
   "expo": {
     "name": "工作台",
     "slug": "CardWorkbench",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "cardworkbench",
@@ -10,7 +10,7 @@
     "ios": {
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.xiaoke.salesworkspace",
-      "buildNumber": "11",
+      "buildNumber": "12",
       "infoPlist": {
         "CFBundleDisplayName": "工作台",
         "NSFaceIDUsageDescription": "用于保护个人客户资料和待办内容。",
@@ -19,6 +19,11 @@
       }
     },
     "android": {
+      "package": "com.xiaoke.salesworkspace",
+      "versionCode": 12,
+      "allowBackup": false,
+      "permissions": ["android.permission.SCHEDULE_EXACT_ALARM"],
+      "blockedPermissions": ["android.permission.RECORD_AUDIO", "android.permission.SYSTEM_ALERT_WINDOW"],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -52,6 +57,7 @@
         }
       ],
       "expo-sqlite",
+      "./plugins/with-android-gradle-compat",
       "expo-local-authentication",
       "./plugins/with-widget-deployment-target",
       [

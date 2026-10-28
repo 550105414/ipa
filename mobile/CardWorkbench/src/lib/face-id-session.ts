@@ -16,6 +16,7 @@ type StoredFaceIdSession = {
 type SessionListener = () => void;
 
 const revokeListeners = new Set<SessionListener>();
+const grantedListeners = new Set<SessionListener>();
 
 export async function loadValidFaceIdSession(now = Date.now()): Promise<number | null> {
   const stored = await SecureStore.getItemAsync(SESSION_KEY);
@@ -49,6 +50,7 @@ export async function createFaceIdSession(now = Date.now()): Promise<number> {
   const expiresAt = now + FACE_ID_SESSION_DURATION_MS;
   const session: StoredFaceIdSession = { issuedAt: now, expiresAt };
   await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session), SECURE_STORE_OPTIONS);
+  for (const listener of grantedListeners) listener();
   return expiresAt;
 }
 
@@ -60,4 +62,9 @@ export async function revokeFaceIdSession(): Promise<void> {
 export function subscribeToFaceIdSessionRevocation(listener: SessionListener): () => void {
   revokeListeners.add(listener);
   return () => revokeListeners.delete(listener);
+}
+
+export function subscribeToFaceIdSessionGranted(listener: SessionListener): () => void {
+  grantedListeners.add(listener);
+  return () => { grantedListeners.delete(listener); };
 }

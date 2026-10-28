@@ -29,7 +29,7 @@ const input = (overrides = {}) => ({ title: '每月还款', notes: '保留备注
 test('fresh migration creates no demo todos and recurrence defaults to none', async (t) => {
   const db = createDatabase(t);
   await databaseFunctions.migrateDatabase(db);
-  assert.equal((await db.getFirstAsync('PRAGMA user_version')).user_version, 6);
+  assert.equal((await db.getFirstAsync('PRAGMA user_version')).user_version, 7);
   assert.equal((await databaseFunctions.getTasks(db)).length, 0);
   const result = await databaseFunctions.insertTask(db, input({ repeatRule: undefined }));
   const task = (await databaseFunctions.getTasks(db))[0];
@@ -69,7 +69,7 @@ test('an interrupted version 6 migration resumes without duplicate columns or lo
   await databaseFunctions.insertTask(db, input());
   await db.execAsync('ALTER TABLE todo_items DROP COLUMN recurrence_anchor_due_at; PRAGMA user_version = 5;');
   await databaseFunctions.migrateDatabase(db);
-  assert.equal((await db.getFirstAsync('PRAGMA user_version')).user_version, 6);
+  assert.equal((await db.getFirstAsync('PRAGMA user_version')).user_version, 7);
   assert.equal((await databaseFunctions.getTasks(db))[0].title, '每月还款');
 });
 

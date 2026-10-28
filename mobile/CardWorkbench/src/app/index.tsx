@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/bottom-navigation';
+import { AccountSyncCard } from '@/components/account-sync-card';
 import { CategoryCard } from '@/components/category-card';
 import { FloatingAddButton } from '@/components/floating-add-button';
 import { ScreenState } from '@/components/screen-state';
@@ -202,6 +203,8 @@ export default function HomeScreen() {
             <SymbolIcon name="key.fill" color="#3A2B16" size={22} />
           </View>
         </Pressable>
+
+        <AccountSyncCard />
 
         <ScreenState
           isLoading={isLoading}

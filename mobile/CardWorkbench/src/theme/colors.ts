@@ -7,22 +7,24 @@ export const colors = {
   cardMuted: '#F1F1F6',
   label: Platform.select({
     ios: Color.ios.label,
-    android: Color.android.dynamic.onSurface,
+    // The current screen/card canvas is light on both system themes. Dynamic
+    // onSurface becomes light in dark mode and disappears on these white cards.
+    android: '#111114',
     default: '#111114',
   })!,
   secondaryLabel: Platform.select({
     ios: Color.ios.secondaryLabel,
-    android: Color.android.dynamic.onSurfaceVariant,
+    android: '#73737B',
     default: '#73737B',
   })!,
   tertiaryLabel: Platform.select({
     ios: Color.ios.tertiaryLabel,
-    android: Color.android.dynamic.onSurfaceVariant,
+    android: '#A0A0A8',
     default: '#A0A0A8',
   })!,
   separator: Platform.select({
     ios: Color.ios.separator,
-    android: Color.android.dynamic.outlineVariant,
+    android: '#E6E6EA',
     default: '#E6E6EA',
   })!,
   blue: '#3479C8',

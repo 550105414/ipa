@@ -373,6 +373,8 @@ export default function AddTaskScreen() {
                 display={process.env.EXPO_OS === 'ios' ? 'inline' : 'default'}
                 locale="zh_CN"
                 mode="date"
+                positiveButton={{ label: '确定' }}
+                negativeButton={{ label: '取消' }}
                 onDismiss={() => setShowDatePicker(false)}
                 onValueChange={(_, date) => {
                   changeDueDate(date);
@@ -436,6 +438,9 @@ export default function AddTaskScreen() {
                   display={process.env.EXPO_OS === 'ios' ? 'spinner' : 'default'}
                   locale="zh_CN"
                   mode="time"
+                  is24Hour
+                  positiveButton={{ label: '确定' }}
+                  negativeButton={{ label: '取消' }}
                   onDismiss={() => setShowTimePicker(false)}
                   onValueChange={(_, date) => {
                     changeTime(date);

@@ -110,8 +110,11 @@ export async function exchangePairing(input: {
 export async function workspaceRequest(
   path: string,
   init: RequestInit = {},
+  capturedSession?: WorkspaceSession,
 ): Promise<Response> {
-  const session = await requireWorkspaceSession();
+  // A multi-request operation can bind identity once. Never silently reload a
+  // different account's credentials between a guard and its authenticated write.
+  const session = capturedSession ? { ...capturedSession } : await requireWorkspaceSession();
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
   headers.set('OAI-Sites-Authorization', `Bearer ${session.dispatchToken}`);
@@ -133,8 +136,8 @@ export async function workspaceRequest(
   return response;
 }
 
-export async function workspaceJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await workspaceRequest(path, init);
+export async function workspaceJson<T>(path: string, init: RequestInit = {}, capturedSession?: WorkspaceSession): Promise<T> {
+  const response = await workspaceRequest(path, init, capturedSession);
   return readJson<T>(response);
 }
 

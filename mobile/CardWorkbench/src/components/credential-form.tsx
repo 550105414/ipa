@@ -140,7 +140,11 @@ export function CredentialForm({ credentialId }: { credentialId?: string }) {
       <View style={styles.hero}>
         <View style={styles.heroCopy}>
           <Text selectable style={styles.heroTitle}>本机加密密码库</Text>
-          <Text selectable style={styles.heroSubtitle}>Face ID 解锁 · Keychain 密钥 · AES-GCM 加密</Text>
+          <Text selectable style={styles.heroSubtitle}>
+            {process.env.EXPO_OS === 'android'
+              ? '指纹或密码解锁 · Keystore 密钥 · AES-GCM 加密'
+              : 'Face ID 解锁 · Keychain 密钥 · AES-GCM 加密'}
+          </Text>
         </View>
         <View style={styles.heroIcon}>
           <SymbolIcon name="lock.shield.fill" color="#3A2B16" size={24} />

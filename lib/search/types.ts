@@ -1,6 +1,7 @@
 export type SearchScope = "all" | "customers";
 
 import type { CustomerMachineMode, CustomerMachineType } from "@/lib/customers/machine";
+import type { CustomerStage, MachineStatus } from "@/lib/customers/profile";
 
 export type ProfileStatus = "completed" | "draft";
 
@@ -51,6 +52,12 @@ export interface CustomerDetail {
   maskedPhone: string;
   profileStatus: ProfileStatus;
   category?: CustomerCategory;
+  stage?: CustomerStage;
+  machineSerial?: string | null;
+  machineStatus?: MachineStatus | null;
+  installedAt?: string | null;
+  monthlyVolume?: number | null;
+  profitShareRate?: number | null;
   nextFollowUpAt?: string | null;
   machineType?: CustomerMachineType | null;
   machineMode?: CustomerMachineMode | null;

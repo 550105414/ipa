@@ -8,14 +8,17 @@ import {
   subscribeToFaceIdSessionRevocation,
 } from '@/lib/face-id-session';
 import { colors } from '@/theme/colors';
+import { hasAndroidDeviceAuthentication } from '@/lib/android-device-auth';
+
+const authenticationName = process.env.EXPO_OS === 'android' ? '设备身份验证' : 'Face ID';
 
 export function PrivacyGate({ children }: PropsWithChildren) {
   const [locked, setLocked] = useState(true);
-  const [message, setMessage] = useState('正在检查 Face ID…');
+  const [message, setMessage] = useState(`正在检查${authenticationName}…`);
   const authenticating = useRef(false);
   const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const lock = useCallback((nextMessage = 'Face ID 解锁已过期，请重新验证。') => {
+  const lock = useCallback((nextMessage = `${authenticationName}解锁已过期，请重新验证。`) => {
     if (expiryTimer.current) clearTimeout(expiryTimer.current);
     expiryTimer.current = null;
     setLocked(true);
@@ -40,25 +43,35 @@ export function PrivacyGate({ children }: PropsWithChildren) {
   const unlock = useCallback(async () => {
     if (authenticating.current) return;
     authenticating.current = true;
-    setMessage('正在验证 Face ID…');
+    setMessage(`正在进行${authenticationName}…`);
     try {
-      const [hasHardware, enrolled] = await Promise.all([
-        LocalAuthentication.hasHardwareAsync(),
-        LocalAuthentication.isEnrolledAsync(),
-      ]);
-      if (!hasHardware) {
-        lock('这台设备不支持 Face ID，无法解锁个人资料。');
-        return;
-      }
-      if (!enrolled) {
-        lock('请先在 iPhone“设置”中录入 Face ID。');
-        return;
+      if (process.env.EXPO_OS === 'android') {
+        if (!(await hasAndroidDeviceAuthentication())) {
+          lock('请先在手机“设置 → 安全”中设置屏幕锁密码、PIN 或图案，再解锁个人资料。');
+          return;
+        }
+      } else {
+        const [hasHardware, enrolled] = await Promise.all([
+          LocalAuthentication.hasHardwareAsync(),
+          LocalAuthentication.isEnrolledAsync(),
+        ]);
+        if (!hasHardware) {
+          lock('这台设备不支持 Face ID，无法解锁个人资料。');
+          return;
+        }
+        if (!enrolled) {
+          lock('请先在 iPhone“设置”中录入 Face ID。');
+          return;
+        }
       }
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: '解锁个人工作台',
         fallbackLabel: '使用设备密码',
         cancelLabel: '取消',
         disableDeviceFallback: false,
+        ...(process.env.EXPO_OS === 'android'
+          ? { biometricsSecurityLevel: 'strong' as const, promptSubtitle: '使用指纹或屏幕锁密码验证' }
+          : {}),
       });
       if (result.success) {
         acceptSession(await createFaceIdSession());
@@ -66,7 +79,7 @@ export function PrivacyGate({ children }: PropsWithChildren) {
         setMessage('验证未完成，请重试。');
       }
     } catch {
-      lock('暂时无法验证 Face ID，请重试。');
+      lock(`暂时无法完成${authenticationName}，请重试。`);
     } finally {
       authenticating.current = false;
     }
@@ -82,14 +95,14 @@ export function PrivacyGate({ children }: PropsWithChildren) {
     } catch {
       // A Keychain read failure must never silently bypass the privacy gate.
     }
-    lock('请使用 Face ID 解锁，有效期为 1 小时。');
+    lock(`请使用${authenticationName}解锁，有效期为 1 小时。`);
     await unlock();
   }, [acceptSession, lock, unlock]);
 
   useEffect(() => {
     void restoreOrUnlock();
     const unsubscribe = subscribeToFaceIdSessionRevocation(() =>
-      lock('登录状态已变更，请重新验证 Face ID。'),
+      lock(`登录状态已变更，请重新完成${authenticationName}。`),
     );
     return () => {
       unsubscribe();
@@ -142,7 +155,7 @@ export function PrivacyGate({ children }: PropsWithChildren) {
           </View>
           <View style={{ alignItems: 'center', gap: 7 }}>
             <Text selectable style={{ color: colors.label, fontSize: 22, fontWeight: '700' }}>
-              Face ID 已锁定
+              {process.env.EXPO_OS === 'android' ? '工作台已锁定' : 'Face ID 已锁定'}
             </Text>
             <Text selectable style={{ color: colors.secondaryLabel, fontSize: 14, textAlign: 'center' }}>
               {message}
@@ -160,7 +173,9 @@ export function PrivacyGate({ children }: PropsWithChildren) {
               borderCurve: 'continuous',
               backgroundColor: pressed ? '#2866AB' : colors.blue,
             })}>
-            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>使用 Face ID 解锁</Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>
+              {process.env.EXPO_OS === 'android' ? '使用指纹或密码解锁' : '使用 Face ID 解锁'}
+            </Text>
           </Pressable>
         </View>
       ) : null}

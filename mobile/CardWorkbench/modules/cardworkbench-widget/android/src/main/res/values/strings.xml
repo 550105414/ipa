@@ -1,0 +1,4 @@
+<resources>
+  <string name="cardworkbench_widget_name">工作台待办</string>
+  <string name="cardworkbench_widget_description">已到时间的待办列表，随 App 修改更新</string>
+</resources>

@@ -8,10 +8,13 @@ import { canonicalJson, validateSyncDocument, type SyncDocument } from './accoun
 export type SyncEnvelope = { version: 1; kdf: 'pbkdf2-sha256'; iterations: 310000; salt: string; nonce: string; ciphertext: string };
 export const SYNC_KDF_ITERATIONS = 310_000;
 export const MAX_CIPHERTEXT_BYTES = 1024 * 1024;
+// Stay comfortably below mobile engines' variadic-call limits. A large vault
+// must not fail before upload just because Node accepts larger argument lists.
+const BASE64_CHUNK_BYTES = 2048;
 
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_BYTES) binary += String.fromCharCode(...bytes.subarray(offset, offset + BASE64_CHUNK_BYTES));
   return btoa(binary);
 }
 export function base64ToBytes(value: string): Uint8Array {

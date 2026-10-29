@@ -13,7 +13,9 @@ type TaskRow = {
   metadata_core_due_at: string | null;
   metadata_raw_due_at: string | null;
 };
-export type AccountSyncSnapshot = { revision: number; document: SyncDocument; taskRows: TaskRow[] };
+export type AccountSyncMode = 'all' | 'credentials-only';
+export type AccountSyncSnapshot = { revision: number; document: SyncDocument; taskRows: TaskRow[]; mode?: AccountSyncMode };
+const participates = (record: Pick<SyncRecord, 'kind'>, mode: AccountSyncMode) => mode === 'all' || record.kind === 'credential' || record.kind === 'credential-category';
 export class LocalAccountSyncChanged extends Error {
   constructor() { super('同步期间本机资料有新改动，已保留，将重新合并。'); this.name = 'LocalAccountSyncChanged'; }
 }
@@ -24,14 +26,29 @@ export async function getAccountSyncLocalRevision(database: SQLiteDatabase): Pro
 export async function getAccountSyncBoundScope(database: SQLiteDatabase): Promise<string | null> {
   return (await database.getFirstAsync<{ value: string }>("SELECT value FROM app_metadata WHERE key = 'account-sync.bound-scope'"))?.value ?? null;
 }
+
+/** Bind only authenticated identity before any local secret snapshot is read. */
+export async function bindAccountSyncScope(database: SQLiteDatabase, scope: string, guard: () => Promise<void> = async () => undefined): Promise<void> {
+  await guard();
+  await database.withExclusiveTransactionAsync(async (transaction) => {
+    await transaction.execAsync('PRAGMA busy_timeout = 5000;');
+    await guard();
+    await transaction.runAsync("INSERT OR IGNORE INTO app_metadata (key, value) VALUES ('account-sync.bound-scope', ?)", scope);
+    if (await getAccountSyncBoundScope(transaction) !== scope) throw new Error('本机资料已绑定另一账号，为避免泄露已停止同步。请恢复原账号配对。');
+    await guard();
+  });
+}
 export async function getAccountSyncKnownRevision(database: SQLiteDatabase, scope: string): Promise<number> {
   const row = await database.getFirstAsync<{ value: string }>('SELECT value FROM app_metadata WHERE key = ?', `account-sync.revision.${scope}`);
   return row ? Number(row.value) : 0;
 }
-export async function loadAccountSyncBaselines(database: SQLiteDatabase, scope: string, guard: () => Promise<void> = async () => undefined): Promise<SyncBaseline[]> {
-  const rows = await database.getAllAsync<SyncBaseline>('SELECT kind, id, local_hash, remote_hash FROM account_sync_baselines WHERE scope = ?', scope);
+export async function loadAccountSyncBaselines(database: SQLiteDatabase, scope: string, guard: () => Promise<void> = async () => undefined, mode: AccountSyncMode = 'all'): Promise<SyncBaseline[]> {
+  // Exclude unrelated task baselines before device-key decryption. A broken or
+  // unavailable task must not prevent an explicitly credential-only sync.
+  const rows = await database.getAllAsync<SyncBaseline>(`SELECT kind, id, local_hash, remote_hash FROM account_sync_baselines WHERE scope = ?${mode === 'credentials-only' ? " AND kind IN ('credential', 'credential-category')" : ''}`, scope);
   const baselines: SyncBaseline[] = [];
   for (const row of rows) {
+    if (!participates(row, mode)) continue;
     await guard();
     if (row.remote_hash !== 'device-encrypted:v1' || !row.local_hash) throw new Error('同步基线格式不兼容，已停止以保护密码库。');
     const encrypted = JSON.parse(row.local_hash) as { ciphertext: string; keyVersion: number };
@@ -56,11 +73,11 @@ async function storeEncryptedBaseline(database: SQLiteDatabase, scope: string, r
   scope, record.kind, record.id, JSON.stringify(encrypted));
 }
 
-export async function captureAccountSyncSnapshot(database: SQLiteDatabase, guard: () => Promise<void> = async () => undefined): Promise<AccountSyncSnapshot> {
+export async function captureAccountSyncSnapshot(database: SQLiteDatabase, guard: () => Promise<void> = async () => undefined, mode: AccountSyncMode = 'all'): Promise<AccountSyncSnapshot> {
   await guard();
   const revision = await getAccountSyncLocalRevision(database);
-  const taskRows = await database.getAllAsync<TaskRow>('SELECT id, remote_id, notes, label, category_id, is_starred, due_at, repeat_rule, recurrence_anchor_due_at, recurrence_parent_id, metadata_initialized, metadata_core_due_at, metadata_raw_due_at FROM todo_items');
-  const todoCategories = await database.getAllAsync<CategoryRow>('SELECT * FROM todo_categories');
+  const taskRows = mode === 'credentials-only' ? [] : await database.getAllAsync<TaskRow>('SELECT id, remote_id, notes, label, category_id, is_starred, due_at, repeat_rule, recurrence_anchor_due_at, recurrence_parent_id, metadata_initialized, metadata_core_due_at, metadata_raw_due_at FROM todo_items');
+  const todoCategories = mode === 'credentials-only' ? [] : await database.getAllAsync<CategoryRow>('SELECT * FROM todo_categories');
   const credentialCategories = await database.getAllAsync<CategoryRow>('SELECT * FROM credential_categories');
   const credentials = await getCredentials(database, guard);
   const deletedCredentials = await database.getAllAsync<{ id: string }>('SELECT id FROM account_sync_deleted_credentials');
@@ -87,7 +104,7 @@ export async function captureAccountSyncSnapshot(database: SQLiteDatabase, guard
   } });
   const existingIds = new Set(credentials.map((entry) => entry.id));
   for (const entry of deletedCredentials) if (!existingIds.has(entry.id)) records.push({ kind: 'credential', id: entry.id, deleted: true, data: null });
-  return { revision, document: validateSyncDocument({ version: 1, records }), taskRows };
+  return { revision, document: validateSyncDocument({ version: 1, records }), taskRows, mode };
 }
 
 async function rememberScope(database: SQLiteDatabase, scope: string, cloudRevision: number) {
@@ -98,20 +115,21 @@ async function rememberScope(database: SQLiteDatabase, scope: string, cloudRevis
 }
 
 /** Persist only fingerprints after an acknowledged CAS; this is safe even if an in-flight edit makes the import stale. */
-export async function rememberAccountSyncAcknowledgement(database: SQLiteDatabase, scope: string, cloudRevision: number, local: SyncDocument, merged: SyncDocument, guard: () => Promise<void> = async () => undefined): Promise<void> {
+export async function rememberAccountSyncAcknowledgement(database: SQLiteDatabase, scope: string, cloudRevision: number, local: SyncDocument, merged: SyncDocument, guard: () => Promise<void> = async () => undefined, mode: AccountSyncMode = 'all'): Promise<void> {
   const localMap = new Map(local.records.map((record) => [syncRecordKey(record), record]));
   await database.withExclusiveTransactionAsync(async (transaction) => {
     await transaction.execAsync('PRAGMA busy_timeout = 5000;');
     await rememberScope(transaction, scope, cloudRevision);
-    for (const record of merged.records) await storeEncryptedBaseline(transaction, scope, record, syncFingerprint(localMap.get(syncRecordKey(record))), syncFingerprint(record), guard);
+    for (const record of merged.records) if (participates(record, mode)) await storeEncryptedBaseline(transaction, scope, record, syncFingerprint(localMap.get(syncRecordKey(record))), syncFingerprint(record), guard);
   });
 }
 
 /** Re-encrypt imported credentials with this device's Keychain/Keystore key before touching SQLite. */
 export async function applyAccountSyncDocument(database: SQLiteDatabase, scope: string, cloudRevision: number, snapshot: AccountSyncSnapshot, document: SyncDocument, guard: () => Promise<void> = async () => undefined): Promise<void> {
+  const records = document.records.filter((record) => participates(record, snapshot.mode ?? 'all'));
   const knownTasks = new Set(snapshot.taskRows.map((task) => task.remote_id).filter(Boolean));
   const childrenByParent = new Map<string, string[]>();
-  for (const record of document.records) {
+  for (const record of records) {
     if (record.kind !== 'task' || record.deleted || !knownTasks.has(record.id)) continue;
     const parent = (record.data as SyncTask).recurrenceParentRemoteId;
     if (!parent) continue;
@@ -122,7 +140,7 @@ export async function applyAccountSyncDocument(database: SQLiteDatabase, scope: 
   }
   const original = new Map(snapshot.document.records.map((record) => [syncRecordKey(record), record]));
   const encryptedEntries = new Map<string, { ciphertext: string; keyVersion: number }>();
-  for (const record of document.records) {
+  for (const record of records) {
     if (record.kind !== 'credential' || record.deleted || syncFingerprint(original.get(syncRecordKey(record))) === syncFingerprint(record)) continue;
     const entry = record.data as SyncCredential;
     await guard();
@@ -136,7 +154,7 @@ export async function applyAccountSyncDocument(database: SQLiteDatabase, scope: 
     if (await getAccountSyncLocalRevision(transaction) !== snapshot.revision) throw new LocalAccountSyncChanged();
     await rememberScope(transaction, scope, cloudRevision);
     const actual = new Map(original);
-    for (const record of document.records) {
+    for (const record of records) {
       if (!record.kind.endsWith('category')) continue;
       if (syncFingerprint(actual.get(syncRecordKey(record))) === syncFingerprint(record)) continue;
       const category = record.data as SyncCategory;
@@ -147,7 +165,7 @@ export async function applyAccountSyncDocument(database: SQLiteDatabase, scope: 
       actual.set(syncRecordKey(record), record);
     }
     const tasksByRemote = new Map(snapshot.taskRows.filter((task) => task.remote_id).map((task) => [task.remote_id!, task]));
-    for (const record of document.records) {
+    for (const record of records) {
       if (record.kind.endsWith('category')) continue;
       if (syncFingerprint(actual.get(syncRecordKey(record))) === syncFingerprint(record)) continue;
       if (record.kind === 'credential') {
@@ -181,7 +199,7 @@ export async function applyAccountSyncDocument(database: SQLiteDatabase, scope: 
         actual.set(syncRecordKey(record), { ...record, data: { ...task, dueAt, repeatRule, recurrenceAnchorDueAt: anchor, coreDueAt: currentCoreDue } });
       }
     }
-    for (const record of document.records) await storeEncryptedBaseline(transaction, scope, record, syncFingerprint(actual.get(syncRecordKey(record))), syncFingerprint(record), guard);
+    for (const record of records) await storeEncryptedBaseline(transaction, scope, record, syncFingerprint(actual.get(syncRecordKey(record))), syncFingerprint(record), guard);
     await guard();
     await transaction.runAsync("INSERT INTO app_metadata (key, value) VALUES ('account-sync.last-success', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", new Date().toISOString());
   });

@@ -2,11 +2,13 @@ import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { ReactNode } from 'react';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SymbolIcon } from '@/components/symbol-icon';
 import { deleteCredential, getCredential } from '@/lib/credential-vault';
+import { subscribeAccountSyncChanges } from '@/lib/account-sync-events';
+import { syncCredentialVault } from '@/lib/account-sync';
 import { colors, layout } from '@/theme/colors';
 import type { CredentialEntry } from '@/types/credential';
 
@@ -17,20 +19,30 @@ export default function CredentialDetailScreen() {
   const [entry, setEntry] = useState<CredentialEntry | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setShowPassword(false);
-      void getCredential(database, id)
-        .then((value) => {
-          if (active) setEntry(value);
-        })
-        .catch((error) => {
-          if (active) setMessage(error instanceof Error ? error.message : '密码资料读取失败');
-        });
+      const load = async () => {
+        const generation = ++loadGeneration.current;
+        setShowPassword(false);
+        try {
+          const value = await getCredential(database, id);
+          if (!active || generation !== loadGeneration.current) return;
+          setEntry(value);
+          setMessage(value ? null : '这条密码记录已删除或不存在。');
+        } catch (error) {
+          if (active && generation === loadGeneration.current) setMessage(error instanceof Error ? error.message : '密码资料读取失败');
+        }
+      };
+      void load();
+      const unsubscribe = subscribeAccountSyncChanges((event) => { if (event === 'imported' || event === 'local-changed') void load(); });
+      void syncCredentialVault(database).catch(() => undefined);
       return () => {
         active = false;
+        loadGeneration.current += 1;
+        unsubscribe();
         setShowPassword(false);
         setEntry(null);
       };

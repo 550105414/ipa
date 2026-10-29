@@ -4,8 +4,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { AppState } from 'react-native';
 
 import { decryptSyncDocument, encryptSyncDocument, validateSyncEnvelope, validateSyncPassword, type SyncEnvelope } from './account-sync-crypto';
-import { AccountSyncConflict, canonicalJson, mergeSyncDocuments, type SyncDocument, type SyncResolution } from './account-sync-model';
-import { applyAccountSyncDocument, captureAccountSyncSnapshot, getAccountSyncBoundScope, getAccountSyncKnownRevision, loadAccountSyncBaselines, LocalAccountSyncChanged, rememberAccountSyncAcknowledgement } from './account-sync-storage';
+import { AccountSyncConflict, canonicalJson, mergeSyncDocuments, syncDocumentFingerprint, validateSyncDocument, type SyncDocument, type SyncResolution } from './account-sync-model';
+import { applyAccountSyncDocument, bindAccountSyncScope, captureAccountSyncSnapshot, getAccountSyncBoundScope, getAccountSyncKnownRevision, loadAccountSyncBaselines, LocalAccountSyncChanged, rememberAccountSyncAcknowledgement, type AccountSyncMode } from './account-sync-storage';
 import { emitAccountSyncChange } from './account-sync-events';
 import { loadValidFaceIdSession } from './face-id-session';
 import { syncWorkspaceTasks } from './task-sync';
@@ -13,9 +13,15 @@ import { loadWorkspaceSession, workspaceAuthHeaders, WorkspaceApiError, type Wor
 
 type PasswordState = { current: string; pending?: string };
 type CloudState = { scope: string; revision: number; envelope: SyncEnvelope | null; updatedAt: string | null };
+export type AccountSyncConflictContext = Readonly<{
+  scope: string; cloudRevision: number; mode: AccountSyncMode;
+  conflictKeys: readonly string[]; localFingerprint: string;
+}>;
 export type AccountSyncStatus = {
-  phase: 'disabled' | 'unpaired' | 'paused' | 'syncing' | 'ready' | 'error' | 'conflict';
-  scope: string | null; configured: boolean; lastSyncedAt: string | null;
+  phase: 'disabled' | 'unpaired' | 'paused' | 'syncing' | 'ready' | 'partial' | 'error' | 'conflict';
+  scope: string | null; configured: boolean; lastSyncedAt: string | null; lastVaultSyncedAt: string | null;
+  syncScope: AccountSyncMode;
+  conflictContext: AccountSyncConflictContext | null;
   message: string; conflictCount: number;
 };
 const secureOptions = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY } as const;
@@ -27,7 +33,7 @@ let passwordSettingsInProgress = 0;
 class PasswordSyncCancelled extends Error {
   constructor() { super('同步密码设置已变化，旧同步已停止；未恢复已移除的密码。'); }
 }
-let status: AccountSyncStatus = { phase: 'disabled', scope: null, configured: false, lastSyncedAt: null, message: '尚未设置跨设备同步密码；本机资料不受影响。', conflictCount: 0 };
+let status: AccountSyncStatus = { phase: 'disabled', scope: null, configured: false, lastSyncedAt: null, lastVaultSyncedAt: null, syncScope: 'all', conflictContext: null, message: '尚未设置跨设备同步密码；本机资料不受影响。', conflictCount: 0 };
 const statusListeners = new Set<() => void>();
 export const getAccountSyncStatus = () => status;
 export const subscribeAccountSyncStatus = (listener: () => void) => { statusListeners.add(listener); return () => { statusListeners.delete(listener); }; };
@@ -133,15 +139,46 @@ async function openCloud(cloud: CloudState, passwords: PasswordState, guard: () 
   return { document, passwords };
 }
 
-type SyncOptions = { skipCore?: boolean; resolution?: SyncResolution };
-type Worker = { running: Promise<void> | null; requested: number; options: SyncOptions };
+type SyncOptions = { skipCore?: boolean; credentialsOnly?: boolean; resolution?: SyncResolution; conflictContext?: AccountSyncConflictContext };
+type Worker = { running: Promise<void> | null; requested: number; options: SyncOptions | null };
 const workers = new WeakMap<SQLiteDatabase, Worker>();
+
+function queueOptions(pending: SyncOptions | null, incoming: SyncOptions): SyncOptions {
+  if (!pending) return { ...incoming };
+  // A narrow automatic request must not replace a pending explicit full sync,
+  // or apply a credential-only conflict preference to unrelated task records.
+  if (!pending.credentialsOnly && incoming.credentialsOnly) return pending;
+  if (pending.credentialsOnly && !incoming.credentialsOnly) return { ...incoming };
+  const selection = incoming.resolution !== undefined ? incoming : pending;
+  return { ...incoming, skipCore: Boolean(pending.skipCore && incoming.skipCore), resolution: selection.resolution, conflictContext: selection.conflictContext };
+}
+
+const credentialRecord = (record: { kind: string }) => record.kind === 'credential' || record.kind === 'credential-category';
+const credentialsDocument = (document: SyncDocument): SyncDocument => ({ version: 1, records: document.records.filter(credentialRecord) });
+
+function identityFailure(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'status' in error && (error.status === 401 || error.status === 403)) return true;
+  // Legacy task scope checks throw plain errors. Fail closed for those too;
+  // the independent session/scope guards below remain mandatory in all cases.
+  return error instanceof Error && /另一账号|账号.*(?:变化|切换|不同)|凭证.*(?:变化|失效)|配对.*失效/.test(error.message);
+}
+
+/** Independent safe subset: never reads or acknowledges local task metadata. */
+export function syncCredentialVault(database: SQLiteDatabase, resolution?: SyncResolution, conflictContext?: AccountSyncConflictContext): Promise<void> {
+  return syncAccountData(database, { credentialsOnly: true, resolution, conflictContext });
+}
+
+function freezeConflictContext(context: AccountSyncConflictContext): AccountSyncConflictContext {
+  return Object.freeze({ scope: context.scope, cloudRevision: context.cloudRevision, mode: context.mode,
+    conflictKeys: Object.freeze([...context.conflictKeys].sort()), localFingerprint: context.localFingerprint });
+}
 
 /** Serial latest-wins entry point; no automatic POST/PUT retry after an ambiguous network failure. */
 export function syncAccountData(database: SQLiteDatabase, options: SyncOptions = {}): Promise<void> {
+  if (options.conflictContext) options = { ...options, conflictContext: freezeConflictContext(options.conflictContext) };
   let worker = workers.get(database);
-  if (!worker) { worker = { running: null, requested: 0, options }; workers.set(database, worker); }
-  worker.options = options;
+  if (!worker) { worker = { running: null, requested: 0, options: null }; workers.set(database, worker); }
+  worker.options = queueOptions(worker.options, options);
   worker.requested += 1;
   if (!worker.running) {
     const currentWorker = worker;
@@ -150,9 +187,11 @@ export function syncAccountData(database: SQLiteDatabase, options: SyncOptions =
         let completed = 0;
         while (completed !== currentWorker.requested) {
           const requested = currentWorker.requested;
-          try { await performSync(database, currentWorker.options); }
+          const pending = currentWorker.options ?? {};
+          currentWorker.options = null;
+          try { await performSync(database, pending); }
           catch (error) {
-            if (!(error instanceof PasswordSyncCancelled)) updateStatus({ phase: error instanceof AccountSyncConflict ? 'conflict' : 'error', message: error instanceof Error ? error.message : '加密同步失败，本机数据已保留。', conflictCount: error instanceof AccountSyncConflict ? error.recordKeys.length : 0 });
+            if (!(error instanceof PasswordSyncCancelled)) updateStatus({ phase: error instanceof AccountSyncConflict ? 'conflict' : 'error', message: error instanceof Error ? error.message : '加密同步失败，本机数据已保留。', conflictCount: error instanceof AccountSyncConflict ? error.recordKeys.length : 0, conflictContext: error instanceof AccountSyncConflict ? status.conflictContext : null });
             if (requested === currentWorker.requested) throw error;
           }
           completed = requested;
@@ -167,13 +206,29 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
   if (passwordSettingsInProgress) return;
   const intentEpoch = passwordIntentEpoch;
   const session = await loadWorkspaceSession();
-  if (!session) { updateStatus({ phase: 'unpaired', configured: false, scope: null, conflictCount: 0, message: '两台手机须分别配对到同一个工作台账号，设备登录凭证不会跨手机复制。' }); return; }
+  if (!session) { updateStatus({ phase: 'unpaired', configured: false, scope: null, conflictCount: 0, conflictContext: null, message: '两台手机须分别配对到同一个工作台账号，设备登录凭证不会跨手机复制。' }); return; }
   if (AppState.currentState !== 'active' || !(await loadValidFaceIdSession())) {
-    updateStatus({ phase: 'paused', message: '已暂停：请解锁工作台后同步。' }); return;
+    updateStatus({ phase: 'paused', conflictContext: null, message: '已暂停：请解锁工作台后同步。' }); return;
   }
-  if (!options.skipCore) await syncWorkspaceTasks(database);
+  if (options.resolution && options.resolution !== 'block' && !options.conflictContext) throw new Error('冲突确认已失效，请先重新同步获取最新冲突，再明确选择。');
+  let mode: AccountSyncMode = options.credentialsOnly ? 'credentials-only' : 'all';
+  let coreFailed = false;
+  updateStatus({ phase: 'syncing', syncScope: mode, conflictCount: 0, conflictContext: null, message: mode === 'credentials-only' ? '正在独立同步密码库…' : '正在同步基础待办与加密资料…' });
+  if (mode === 'all' && !options.skipCore) {
+    try { await syncWorkspaceTasks(database); }
+    catch (error) {
+      if (identityFailure(error)) throw error;
+      // Tasks may be offline/invalid without making a separately authenticated
+      // vault unsafe. Never upload an incomplete full-task snapshot in this case.
+      coreFailed = true;
+      mode = 'credentials-only';
+      updateStatus({ syncScope: mode, message: '基础待办未完成；正在独立同步密码库…' });
+    }
+  }
   await guardSession(session);
   let resolution = options.resolution ?? 'block';
+  let conflictContext = options.conflictContext;
+  if (resolution !== 'block' && !conflictContext) throw new Error('冲突确认已失效，请先重新同步获取最新冲突，再明确选择。');
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const cloud = await readCloud(database, session);
@@ -191,14 +246,44 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
       const passwords = await readPasswords(cloud.scope);
       await guard();
       updateStatus({ scope: cloud.scope, configured: Boolean(passwords) });
-      if (!passwords) { updateStatus({ phase: 'disabled', conflictCount: 0, message: '基础客户和待办可正常使用；设置相同同步密码后互通密码库、备注、分类和重复规则。' }); return; }
+      if (!passwords) { updateStatus({ phase: 'disabled', conflictCount: 0, message: cloud.envelope
+        ? '云端已有加密资料；请输入另一台手机使用的原同步密码，验证后才能导入。本机资料未删除。'
+        : '本机尚未设置跨设备同步密码；请先在保存完整资料的手机设置，再在另一台输入同一个同步密码。基础客户和待办仍可使用。' }); return; }
       updateStatus({ phase: 'syncing', conflictCount: 0, message: '正在解密、合并并同步资料…' });
       const opened = await openCloud(cloud, passwords, guard);
       await guard();
-      const snapshot = await captureAccountSyncSnapshot(database, guard);
-      const baselines = await loadAccountSyncBaselines(database, cloud.scope, guard);
+      // First credential-only sync may stop on a merge conflict before ACK or
+      // import. Bind its proven account now so later pairing cannot leak local
+      // records into a different account; do not acknowledge any revision yet.
+      await bindAccountSyncScope(database, cloud.scope, guard);
+      const snapshot = await captureAccountSyncSnapshot(database, guard, mode);
+      const baselines = await loadAccountSyncBaselines(database, cloud.scope, guard, mode);
       await guard();
-      const merged = mergeSyncDocuments(snapshot.document, opened.document, baselines, resolution);
+      const remoteParticipants = mode === 'credentials-only' ? credentialsDocument(opened.document) : opened.document;
+      const localParticipants = mode === 'credentials-only' ? credentialsDocument(snapshot.document) : snapshot.document;
+      const participantBaselines = baselines.filter((baseline) => mode === 'all' || credentialRecord(baseline));
+      let mergedParticipants: SyncDocument;
+      try {
+        // Always discover the current conflicts before applying any preference.
+        mergedParticipants = mergeSyncDocuments(localParticipants, remoteParticipants, participantBaselines, 'block');
+      } catch (error) {
+        if (!(error instanceof AccountSyncConflict)) throw error;
+        const currentContext = freezeConflictContext({ scope: cloud.scope, cloudRevision: cloud.revision, mode,
+          conflictKeys: error.recordKeys, localFingerprint: syncDocumentFingerprint(localParticipants) });
+        updateStatus({ conflictContext: currentContext });
+        if (resolution === 'block') throw error;
+        if (!conflictContext || canonicalJson(conflictContext) !== canonicalJson(currentContext)) {
+          const changed = new AccountSyncConflict(error.recordKeys);
+          changed.message = '冲突内容已变化，未使用旧选择覆盖资料。请重新检查当前冲突并确认。';
+          throw changed;
+        }
+        mergedParticipants = mergeSyncDocuments(localParticipants, remoteParticipants, participantBaselines, resolution);
+      }
+      // Preserve every remote task/category record, including tombstones and
+      // unknown compatible fields, without writing task baselines locally.
+      const merged = mode === 'credentials-only'
+        ? validateSyncDocument({ version: 1, records: [...opened.document.records.filter((record) => !credentialRecord(record)), ...mergedParticipants.records] })
+        : mergedParticipants;
       let cloudRevision = cloud.revision;
       if (!cloud.envelope || opened.passwords.pending || canonicalJson(merged) !== canonicalJson(opened.document)) {
         const writePassword = opened.passwords.pending ?? opened.passwords.current;
@@ -210,15 +295,20 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
         cloudRevision = result.revision;
       }
       await guardSession(session);
-      await rememberAccountSyncAcknowledgement(database, cloud.scope, cloudRevision, snapshot.document, merged, guard);
-      await applyAccountSyncDocument(database, cloud.scope, cloudRevision, snapshot, merged, guard);
+      await rememberAccountSyncAcknowledgement(database, cloud.scope, cloudRevision, snapshot.document, mergedParticipants, guard, mode);
+      await applyAccountSyncDocument(database, cloud.scope, cloudRevision, snapshot, mergedParticipants, guard);
       if (opened.promote || opened.passwords.pending) {
         await guard();
         const committedEpoch = await writePasswords(cloud.scope, { current: opened.passwords.pending ?? opened.passwords.current }, guardIdentity, passwordEpoch);
         await guardIdentity();
         if ((passwordEpochs.get(cloud.scope) ?? 0) !== committedEpoch) throw new PasswordSyncCancelled();
       }
-      updateStatus({ phase: 'ready', configured: true, lastSyncedAt: new Date().toISOString(), message: '加密同步完成：密码库和完整待办字段已合并；客户资料使用同一工作台账号。', conflictCount: 0 });
+      const finishedAt = new Date().toISOString();
+      updateStatus({ phase: mode === 'all' ? 'ready' : 'partial', configured: true, syncScope: mode, conflictContext: null,
+        lastVaultSyncedAt: finishedAt, ...(mode === 'all' ? { lastSyncedAt: finishedAt } : {}),
+        message: mode === 'all' ? '加密同步完成：密码库和完整待办字段已合并；客户资料使用同一工作台账号。'
+          : coreFailed ? '密码库已同步；基础待办未完成，待办资料和基线未被覆盖。'
+            : '密码库已同步；本次仅处理密码和密码分类，待办由计划页单独同步。', conflictCount: 0 });
       emitAccountSyncChange('imported');
       return;
     } catch (error) {
@@ -226,6 +316,7 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
         // A new concurrent cloud edit needs a fresh user decision, not reuse of
         // an earlier destructive conflict preference against a different revision.
         resolution = 'block';
+        conflictContext = undefined;
         if (attempt < 2) continue;
         throw new Error('其他设备或本机正在修改资料，已停止覆盖；稍后点击同步重试。');
       }
@@ -285,6 +376,6 @@ export async function forgetAccountSyncPassword(): Promise<void> {
     const guard = async () => { await requireUnlocked(); if (passwordIntentEpoch !== intent) throw new PasswordSyncCancelled(); };
     if (scope) await writePasswords(scope, null, guard);
     else await guard();
-    updateStatus({ configured: false, phase: 'disabled', conflictCount: 0, message: '已移除本机同步密码；本机资料、云端密文均未删除。' });
+    updateStatus({ configured: false, phase: 'disabled', conflictCount: 0, conflictContext: null, message: '已移除本机同步密码；本机资料、云端密文均未删除。' });
   } finally { if (passwordSettingsInProgress === intent) passwordSettingsInProgress = 0; }
 }

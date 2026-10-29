@@ -22,7 +22,7 @@ test('Expo iOS release configuration stays pinned', async () => {
   assert.equal(appConfig.expo.name, '工作台');
   assert.equal(appConfig.expo.version, '1.6.0');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '12');
+  assert.equal(appConfig.expo.ios.buildNumber, '13');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));
@@ -30,6 +30,9 @@ test('Expo iOS release configuration stays pinned', async () => {
   assert.equal(packageJson.version, '1.6.0');
   assert.equal(packageLock.version, '1.6.0');
   assert.equal(packageLock.packages[''].version, '1.6.0');
+  const iosWorkflow = await readFile(new URL('../../.github/workflows/build.yaml', projectRoot), 'utf8');
+  assert.ok(iosWorkflow.includes(`APP_BUILD: "${appConfig.expo.ios.buildNumber}"`));
+  assert.ok(iosWorkflow.includes(`APP_VERSION: ${appConfig.expo.version}`));
 
   const widgetPluginIndex = appConfig.expo.plugins.findIndex(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-widgets',

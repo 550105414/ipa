@@ -3,7 +3,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useState, useSyncExternalStore } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import { changeAccountSyncPassword, configureAccountSyncPassword, forgetAccountSyncPassword, getAccountSyncStatus, subscribeAccountSyncStatus, syncAccountData } from '@/lib/account-sync';
+import { changeAccountSyncPassword, configureAccountSyncPassword, forgetAccountSyncPassword, getAccountSyncStatus, subscribeAccountSyncStatus, syncAccountData, syncCredentialVault } from '@/lib/account-sync';
 import { useTodos } from '@/providers/todo-provider';
 import { colors } from '@/theme/colors';
 
@@ -24,7 +24,9 @@ export default function AccountSyncScreen() {
       await operation();
       setPassword('');
       setConfirmation('');
-      await refresh();
+      // A successful vault operation must not leave this button spinning on
+      // an unrelated WidgetKit/core-task refresh.
+      void refresh().catch(() => undefined);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '同步未完成，本机资料已保留。');
     } finally { setBusy(false); }
@@ -38,10 +40,16 @@ export default function AccountSyncScreen() {
       ]);
     } else void run(() => configureAccountSyncPassword(database, password));
   };
-  const resolve = (resolution: 'local' | 'remote') => Alert.alert('明确选择冲突版本', `仅对两边都修改过的冲突记录采用${resolution === 'local' ? '本机' : '云端'}版本；另一版本会被替换。其他无冲突记录仍会合并。确认前请保留所需资料。`, [
-    { text: '取消', style: 'cancel' },
-    { text: '确认采用', style: 'destructive', onPress: () => void run(() => syncAccountData(database, { resolution })) },
-  ]);
+  const resolve = (resolution: 'local' | 'remote') => {
+    // Capture the displayed conflict, not a status value read after the user
+    // has spent time looking at the confirmation dialog.
+    const mode = status.syncScope;
+    const conflictContext = status.conflictContext ?? undefined;
+    Alert.alert('明确选择冲突版本', `${mode === 'credentials-only' ? '本次仅处理密码库和密码分类，不影响待办。' : '本次处理完整加密资料，可能包含密码与待办。'}仅对两边都修改过的冲突记录采用${resolution === 'local' ? '本机' : '云端'}版本；另一版本会被替换。其他无冲突记录仍会合并。确认前请保留所需资料。`, [
+      { text: '取消', style: 'cancel' },
+      { text: '确认采用', style: 'destructive', onPress: () => void run(() => mode === 'credentials-only' ? syncCredentialVault(database, resolution, conflictContext) : syncAccountData(database, { resolution, conflictContext })) },
+    ]);
+  };
   const button = (title: string, action: () => void, secondary = false) => (
     <Pressable accessibilityRole="button" disabled={busy} onPress={action}
       style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', alignItems: 'center', padding: 12, borderRadius: 14, backgroundColor: secondary ? colors.cardMuted : colors.blue, opacity: busy || pressed ? 0.5 : 1 })}>
@@ -58,10 +66,12 @@ export default function AccountSyncScreen() {
       </View>
       <View style={{ padding: 18, gap: 12, borderRadius: 20, backgroundColor: colors.card }}>
         <Text selectable style={{ color: status.phase === 'error' || status.phase === 'conflict' ? colors.red : colors.label, lineHeight: 22 }}>{status.message}</Text>
-        {status.lastSyncedAt ? <Text selectable style={{ color: colors.secondaryLabel }}>最近成功：{new Date(status.lastSyncedAt).toLocaleString()}</Text> : null}
+        {status.lastVaultSyncedAt ? <Text selectable style={{ color: colors.secondaryLabel }}>密码库最近成功：{new Date(status.lastVaultSyncedAt).toLocaleString()}</Text> : null}
+        {status.lastSyncedAt ? <Text selectable style={{ color: colors.secondaryLabel }}>完整资料最近成功：{new Date(status.lastSyncedAt).toLocaleString()}</Text> : null}
         {status.scope ? <Text selectable style={{ color: colors.secondaryLabel, fontSize: 12 }}>账号隔离标识：{status.scope.slice(0, 12)}…</Text> : null}
         {button('连接/检查工作台账号', () => router.push('/pair' as never))}
         {button('立即同步 / 断线后重试', () => void run(() => syncAccountData(database)), true)}
+        {button('仅同步密码库（不等待待办或小组件）', () => void run(() => syncCredentialVault(database)), true)}
       </View>
       <View style={{ padding: 18, gap: 12, borderRadius: 20, backgroundColor: colors.card }}>
         <Text style={{ color: colors.label, fontWeight: '700', fontSize: 17 }}>同步密码</Text>

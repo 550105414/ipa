@@ -359,9 +359,14 @@ async function controllerFixture(t, patch = {}) {
   let nonceCounter = 0;
   const mockCrypto = {
     ...crypto,
-    async encryptSyncDocument(pw, account, doc) {
+    async encryptSyncDocument(pw, account, doc, random = rng, salt) {
       state.encrypts += 1;
       await state.onEncrypt?.();
+      if (state.realCrypto) {
+        const envelope = await crypto.encryptSyncDocument(pw, account, doc, random, salt);
+        state.uploadedDocument = doc;
+        return envelope;
+      }
       const envelope = { version: 1, kdf: 'pbkdf2-sha256', iterations: 310000, salt: Buffer.alloc(16).toString('base64'), nonce: Buffer.alloc(12, ++nonceCounter).toString('base64'), ciphertext: Buffer.alloc(16, nonceCounter).toString('base64') };
       envelopePasswords.set(envelope.ciphertext, pw);
       state.uploadedDocument = doc;
@@ -369,6 +374,7 @@ async function controllerFixture(t, patch = {}) {
     },
     async decryptSyncDocument(pw, account, envelope) {
       await state.onDecrypt?.();
+      if (state.realCrypto) return crypto.decryptSyncDocument(pw, account, envelope);
       if (pw !== (envelopePasswords.get(envelope.ciphertext) ?? password)) throw new Error('同步密码不正确');
       return state.remoteDocument;
     },
@@ -401,9 +407,10 @@ async function controllerFixture(t, patch = {}) {
     './task-sync': { syncWorkspaceTasks: async () => { await state.onCore?.(); } },
     './workspace-api': { WorkspaceApiError: ApiError, loadWorkspaceSession: async () => state.session ? { ...state.session } : null,
       workspaceAuthHeaders: (session) => { state.onHeaders?.(); return { 'OAI-Sites-Authorization': `Bearer ${session.dispatchToken}`, 'X-Workspace-Device-Token': session.deviceToken }; } },
-    './account-sync-storage': {
+    './account-sync-storage': state.storageAdapter ?? {
       LocalAccountSyncChanged: class LocalAccountSyncChanged extends Error {},
       getAccountSyncBoundScope: async () => state.bound,
+      bindAccountSyncScope: async (db, owner, guard) => { await guard(); if (state.bound && state.bound !== owner) throw new Error('另一账号'); state.bound = owner; await guard(); },
       getAccountSyncKnownRevision: async () => state.knownRevision,
       loadAccountSyncBaselines: async () => [],
       captureAccountSyncSnapshot: async (db, guard) => { await guard(); state.captures += 1; return { revision: 0, document: state.localDocument, taskRows: [] }; },
@@ -411,7 +418,7 @@ async function controllerFixture(t, patch = {}) {
       applyAccountSyncDocument: async (db, owner, revision, snapshot, merged, guard) => { await guard(); state.imports += 1; },
     },
   });
-  return { state, api, db: {} };
+  return { state, api, db: state.database ?? {} };
 }
 
 test('captured identity binds PUT auth even if pairing changes immediately after the final guard', async (t) => {
@@ -519,4 +526,261 @@ test('lost rotation response is recovered using staged password on the next auth
   await api.syncAccountData(db);
   assert.deepEqual(JSON.parse(state.stored.get(`account-sync.password.${scope}`)), { current: newPassword });
   assert.equal(api.getAccountSyncStatus().phase, 'ready');
+});
+
+const remoteTaskRecord = () => ({ kind: 'task', id: 'task-kept-remotely', deleted: false, data: {
+  notes: '远端任务备注', label: '保留', categoryId: 'work', isStarred: true, dueAt: '2099-10-29',
+  repeatRule: 'none', recurrenceAnchorDueAt: null, recurrenceParentRemoteId: null, compatibleExtra: 'preserve-extra-field',
+} });
+
+test('core failure syncs credentials with real crypto/SQLite while preserving remote tasks and unrelated damaged baselines', async (t) => {
+  const fixture = await storageFixture(t);
+  await fixture.credentials.saveCredential(fixture.db, { id: entryId, platformName: '独立密码库', categoryId: 'work', icon: 'key.fill', secret });
+  await fixture.db.runAsync("INSERT INTO todo_items (title, category_id, remote_id, due_at, metadata_initialized) VALUES ('无关待办', 'work', 'task-kept-remotely', 'not-a-date', 1)");
+  await fixture.db.runAsync("INSERT INTO account_sync_baselines (scope, kind, id, local_hash, remote_hash) VALUES (?, 'task', 'task-kept-remotely', 'unrelated-damaged-baseline', 'old-format')", scope);
+  const tasksBefore = await fixture.db.getAllAsync('SELECT * FROM todo_items');
+  const taskBaselinesBefore = await fixture.db.getAllAsync("SELECT * FROM account_sync_baselines WHERE kind='task'");
+  const remoteTask = remoteTaskRecord();
+  const { state, api, db } = await controllerFixture(t, { database: fixture.db, storageAdapter: fixture.storage, realCrypto: true, remoteDocument: document(remoteTask), onCore: async () => { throw new Error('synthetic unrelated task failure'); } });
+  state.cloud = { scope, revision: 1, envelope: await state.makeEnvelope(), updatedAt: '2026-10-29' };
+  await api.syncAccountData(db);
+  const decoded = await crypto.decryptSyncDocument(password, scope, state.cloud.envelope);
+  assert.deepEqual(decoded.records.find((record) => record.kind === 'task'), remoteTask);
+  assert.deepEqual(decoded.records.find((record) => record.kind === 'credential').data.secret, secret);
+  assert.deepEqual(await fixture.db.getAllAsync('SELECT * FROM todo_items'), tasksBefore);
+  assert.deepEqual(await fixture.db.getAllAsync("SELECT * FROM account_sync_baselines WHERE kind='task'"), taskBaselinesBefore);
+  assert.equal(api.getAccountSyncStatus().phase, 'partial');
+  assert.match(api.getAccountSyncStatus().message, /密码库已同步.*基础待办未完成/);
+  assert.ok(api.getAccountSyncStatus().lastVaultSyncedAt);
+  assert.equal(api.getAccountSyncStatus().lastSyncedAt, null);
+  const writes = state.requests.filter((request) => request.method === 'PUT').length;
+  await api.syncCredentialVault(db);
+  assert.equal(state.requests.filter((request) => request.method === 'PUT').length, writes, 'unchanged subset does not continually upload due to record ordering');
+  assert.deepEqual(await fixture.db.getAllAsync("SELECT * FROM account_sync_baselines WHERE kind='task'"), taskBaselinesBefore);
+});
+
+test('two real SQLite device vaults exchange edits, resolve only credential conflicts, and propagate deletion tombstones', async (t) => {
+  const first = await storageFixture(t);
+  const second = await storageFixture(t);
+  const byDatabase = new Map([[first.db, first.storage], [second.db, second.storage]]);
+  const routedStorage = { LocalAccountSyncChanged: first.storage.LocalAccountSyncChanged };
+  for (const name of ['getAccountSyncBoundScope', 'bindAccountSyncScope', 'getAccountSyncKnownRevision', 'loadAccountSyncBaselines', 'captureAccountSyncSnapshot', 'rememberAccountSyncAcknowledgement', 'applyAccountSyncDocument']) {
+    routedStorage[name] = (database, ...args) => byDatabase.get(database)[name](database, ...args);
+  }
+  await first.credentials.saveCredential(first.db, { id: entryId, platformName: '原手机', categoryId: 'work', icon: 'key.fill', secret });
+  const { api } = await controllerFixture(t, { storageAdapter: routedStorage, realCrypto: true, onCore: async () => { throw new Error('credential-only must not call core'); } });
+  await api.syncCredentialVault(first.db);
+  await api.syncCredentialVault(second.db);
+  assert.equal((await second.credentials.getCredential(second.db, entryId)).password, secret.password);
+  const firstCiphertext = await first.db.getFirstAsync('SELECT encrypted_payload FROM credential_entries WHERE id = ?', entryId);
+  await assert.rejects(second.vault.decryptAsync(entryId, firstCiphertext.encrypted_payload, 1));
+  const save = (device, value) => device.credentials.saveCredential(device.db, { id: entryId, platformName: '同步测试', categoryId: 'work', icon: 'key.fill', secret: { ...secret, password: value } });
+  await save(second, 'second-device-updated');
+  await api.syncCredentialVault(second.db);
+  await api.syncCredentialVault(first.db);
+  assert.equal((await first.credentials.getCredential(first.db, entryId)).password, 'second-device-updated');
+  await save(first, 'first-concurrent');
+  await save(second, 'second-concurrent');
+  await api.syncCredentialVault(first.db);
+  await assert.rejects(api.syncCredentialVault(second.db), model.AccountSyncConflict);
+  assert.equal((await second.credentials.getCredential(second.db, entryId)).password, 'second-concurrent');
+  const context = api.getAccountSyncStatus().conflictContext;
+  assert.ok(Object.isFrozen(context));
+  assert.ok(Object.isFrozen(context.conflictKeys));
+  await api.syncCredentialVault(second.db, 'remote', context);
+  assert.equal((await second.credentials.getCredential(second.db, entryId)).password, 'first-concurrent');
+  await first.credentials.deleteCredential(first.db, entryId);
+  await api.syncCredentialVault(first.db);
+  await api.syncCredentialVault(second.db);
+  assert.equal(await second.credentials.getCredential(second.db, entryId), null);
+  assert.equal((await second.db.getAllAsync('SELECT id FROM account_sync_deleted_credentials')).length, 1);
+});
+
+test('credential-only storage enforces the boundary even when passed a full document accidentally', async (t) => {
+  const { db, storage } = await storageFixture(t);
+  await db.runAsync("INSERT INTO todo_items (title, category_id, remote_id, notes, metadata_initialized) VALUES ('本机任务', 'work', 'task-kept-remotely', '本机备注', 1)");
+  const full = await storage.captureAccountSyncSnapshot(db);
+  await storage.rememberAccountSyncAcknowledgement(db, scope, 1, full.document, full.document);
+  const beforeRows = await db.getAllAsync('SELECT * FROM todo_items');
+  const beforeBaselines = await db.getAllAsync("SELECT * FROM account_sync_baselines WHERE kind IN ('task','todo-category')");
+  const snapshot = await storage.captureAccountSyncSnapshot(db, undefined, 'credentials-only');
+  assert.equal(snapshot.taskRows.length, 0);
+  assert.ok(snapshot.document.records.every((record) => record.kind.startsWith('credential')));
+  const misleadingFull = document(...snapshot.document.records, remoteTaskRecord(), credential());
+  await storage.rememberAccountSyncAcknowledgement(db, scope, 2, snapshot.document, misleadingFull, undefined, 'credentials-only');
+  await storage.applyAccountSyncDocument(db, scope, 2, snapshot, misleadingFull);
+  assert.deepEqual(await db.getAllAsync('SELECT * FROM todo_items'), beforeRows);
+  assert.deepEqual(await db.getAllAsync("SELECT * FROM account_sync_baselines WHERE kind IN ('task','todo-category')"), beforeBaselines);
+});
+
+for (const code of [401, 403]) test(`core identity failure ${code} never falls back to password upload`, async (t) => {
+  const { state, api, db } = await controllerFixture(t, { onCore: async () => { const error = new Error('synthetic identity failure'); error.status = code; throw error; } });
+  await assert.rejects(api.syncAccountData(db), /identity failure/);
+  assert.equal(state.requests.length, 0);
+  assert.equal(state.captures, 0);
+});
+
+test('independent credential sync still stops on wrong password, wrong account, lock and changed session', async (t) => {
+  const { state, api, db } = await controllerFixture(t);
+  state.cloud = { scope, revision: 1, envelope: await state.makeEnvelope(newPassword), updatedAt: '2026-10-29' };
+  await assert.rejects(api.syncCredentialVault(db), /密码不正确/);
+  state.bound = 'b'.repeat(64);
+  await assert.rejects(api.syncCredentialVault(db), /另一账号/);
+  state.bound = null;
+  state.unlocked = false;
+  const requests = state.requests.length;
+  await api.syncCredentialVault(db);
+  assert.equal(state.requests.length, requests);
+  state.unlocked = true;
+  state.cloud.envelope = await state.makeEnvelope();
+  state.onDecrypt = async () => { state.session = { ...state.session, deviceToken: 'changed-device' }; };
+  await assert.rejects(api.syncCredentialVault(db), /凭证已变化/);
+  assert.equal(state.captures, 0);
+  assert.equal(state.requests.some((request) => request.method === 'PUT'), false);
+});
+
+test('pending full sync is not replaced or starved by narrow automatic requests', async (t) => {
+  let entered, release;
+  const entering = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  let coreCalls = 0;
+  const { state, api, db } = await controllerFixture(t, { onCore: async () => { coreCalls += 1; } });
+  state.onEncrypt = async () => { entered(); await gate; };
+  const narrow = api.syncCredentialVault(db);
+  await entering;
+  const full = api.syncAccountData(db);
+  const laterNarrow = api.syncCredentialVault(db);
+  release();
+  await Promise.all([narrow, full, laterNarrow]);
+  assert.equal(coreCalls, 1);
+  assert.equal(api.getAccountSyncStatus().phase, 'ready');
+  assert.ok(api.getAccountSyncStatus().lastSyncedAt);
+});
+
+test('missing local password explains existing ciphertext and later full failure retains proven vault success time', async (t) => {
+  const { state, api, db } = await controllerFixture(t);
+  state.cloud = { scope, revision: 1, envelope: await state.makeEnvelope(), updatedAt: '2026-10-29' };
+  state.stored.clear();
+  await api.syncCredentialVault(db);
+  assert.equal(api.getAccountSyncStatus().phase, 'disabled');
+  assert.match(api.getAccountSyncStatus().message, /云端已有加密资料.*原同步密码/);
+  assert.equal(state.captures, 0);
+  state.stored.set(`account-sync.password.${scope}`, JSON.stringify({ current: password }));
+  await api.syncCredentialVault(db);
+  const lastVault = api.getAccountSyncStatus().lastVaultSyncedAt;
+  state.onCore = async () => { const error = new Error('synthetic auth failure'); error.status = 401; throw error; };
+  await assert.rejects(api.syncAccountData(db));
+  assert.equal(api.getAccountSyncStatus().phase, 'error');
+  assert.equal(api.getAccountSyncStatus().lastVaultSyncedAt, lastVault);
+  assert.equal(api.getAccountSyncStatus().lastSyncedAt, null);
+});
+
+async function conflictedController(t, patch = {}) {
+  const fixture = await controllerFixture(t, { remoteDocument: document(credential({ secret: { ...secret, password: 'remote-conflicting-value' } })), ...patch });
+  fixture.state.cloud = { scope, revision: 1, envelope: await fixture.state.makeEnvelope(), updatedAt: '2026-10-29' };
+  await assert.rejects(fixture.api.syncCredentialVault(fixture.db), model.AccountSyncConflict);
+  fixture.context = fixture.api.getAccountSyncStatus().conflictContext;
+  assert.ok(Object.isFrozen(fixture.context));
+  assert.ok(Object.isFrozen(fixture.context.conflictKeys));
+  return fixture;
+}
+
+test('unchanged conflict confirmation is bound to the displayed account/revision/mode/records and can resolve', async (t) => {
+  const { state, api, db, context } = await conflictedController(t);
+  assert.equal(context.scope, scope);
+  assert.equal(context.cloudRevision, 1);
+  assert.equal(context.mode, 'credentials-only');
+  assert.deepEqual(context.conflictKeys, [`credential:${entryId}`]);
+  await api.syncCredentialVault(db, 'local', context);
+  assert.equal(state.uploadedDocument.records.find((record) => record.kind === 'credential').data.secret.password, secret.password);
+  assert.equal(api.getAccountSyncStatus().conflictContext, null);
+  assert.equal(api.getAccountSyncStatus().phase, 'partial');
+});
+
+for (const change of ['remote-revision', 'local-record', 'conflict-keys', 'mode']) test(`stale conflict confirmation stops instead of applying old choice after ${change} changes`, async (t) => {
+  const secondLocal = { ...credential({ secret: { ...secret, password: 'local-second' } }), id: 'second-record' };
+  const fixture = await conflictedController(t, change === 'conflict-keys' ? {
+    localDocument: document(credential(), secondLocal),
+    remoteDocument: document(credential({ secret: { ...secret, password: 'remote-conflicting-value' } }), secondLocal),
+  } : {});
+  const { state, api, db, context } = fixture;
+  if (change === 'remote-revision') state.cloud = { ...state.cloud, revision: 2 };
+  if (change === 'local-record') state.localDocument = document(credential({ secret: { ...secret, password: 'edited-after-alert' } }));
+  if (change === 'conflict-keys') {
+    // A synthetic inconsistent server keeps revision fixed; the key-set check
+    // is independently protective even if revision alone cannot detect this.
+    // Local participant data is deliberately unchanged in this variant.
+    state.remoteDocument = document(credential(), { ...credential({ secret: { ...secret, password: 'remote-second' } }), id: 'second-record' });
+  }
+  const operation = change === 'mode' ? api.syncAccountData(db, { resolution: 'local', conflictContext: context }) : api.syncCredentialVault(db, 'local', context);
+  await assert.rejects(operation, /冲突内容已变化/);
+  assert.equal(state.requests.some((request) => request.method === 'PUT'), false);
+  assert.equal(state.imports, 0);
+  assert.equal(api.getAccountSyncStatus().phase, 'conflict');
+});
+
+test('non-block preference without a context fails closed and CAS retry discards an earlier selection', async (t) => {
+  const fixture = await conflictedController(t);
+  await assert.rejects(fixture.api.syncCredentialVault(fixture.db, 'local'), /确认已失效/);
+  assert.equal(fixture.state.requests.some((request) => request.method === 'PUT'), false);
+  fixture.state.putStatuses.push(409);
+  await assert.rejects(fixture.api.syncCredentialVault(fixture.db, 'local', fixture.context), model.AccountSyncConflict);
+  assert.equal(fixture.state.requests.filter((request) => request.method === 'PUT').length, 1);
+  assert.equal(fixture.state.imports, 0);
+});
+
+test('a pending full request never inherits a credential-only conflict preference', async (t) => {
+  const { state, api, db, context } = await conflictedController(t);
+  let entered, release;
+  const entering = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  state.onDecrypt = async () => { entered(); await gate; };
+  const running = api.syncCredentialVault(db);
+  const failure = assert.rejects(running, model.AccountSyncConflict);
+  await entering;
+  const full = api.syncAccountData(db);
+  const selected = api.syncCredentialVault(db, 'local', context);
+  release();
+  await Promise.all([failure, assert.rejects(full, model.AccountSyncConflict), assert.rejects(selected, model.AccountSyncConflict)]);
+  assert.equal(api.getAccountSyncStatus().syncScope, 'all');
+  assert.equal(state.requests.some((request) => request.method === 'PUT'), false);
+});
+
+test('first credential conflict binds authenticated scope before local capture, without acknowledging its cloud revision', async (t) => {
+  const fixture = await storageFixture(t);
+  await fixture.credentials.saveCredential(fixture.db, { id: entryId, platformName: '本机冲突', categoryId: 'work', icon: 'key.fill', secret });
+  const { state, api, db } = await controllerFixture(t, { database: fixture.db, storageAdapter: fixture.storage,
+    remoteDocument: document(credential({ secret: { ...secret, password: 'other-side-conflict' } })) });
+  state.cloud = { scope, revision: 3, envelope: await state.makeEnvelope(), updatedAt: '2026-10-29' };
+  await assert.rejects(api.syncCredentialVault(db), model.AccountSyncConflict);
+  assert.equal(await fixture.storage.getAccountSyncBoundScope(db), scope);
+  assert.equal(await fixture.storage.getAccountSyncKnownRevision(db, scope), 0);
+  assert.equal((await db.getAllAsync('SELECT * FROM account_sync_baselines')).length, 0);
+  const decryptedBefore = fixture.vault.calls.decrypted.length;
+  state.cloud = { scope: 'b'.repeat(64), revision: 0, envelope: null, updatedAt: null };
+  await assert.rejects(api.syncCredentialVault(db), /另一账号/);
+  assert.equal(fixture.vault.calls.decrypted.length, decryptedBefore);
+  assert.equal(state.requests.some((request) => request.method === 'PUT'), false);
+});
+
+test('wrong password, unpaired or locked credential sync cannot create an account binding', async (t) => {
+  const fixture = await storageFixture(t);
+  const { state, api, db } = await controllerFixture(t, { database: fixture.db, storageAdapter: fixture.storage });
+  state.cloud = { scope, revision: 1, envelope: await state.makeEnvelope(newPassword), updatedAt: '2026-10-29' };
+  await assert.rejects(api.syncCredentialVault(db), /密码不正确/);
+  assert.equal(await fixture.storage.getAccountSyncBoundScope(db), null);
+  state.unlocked = false;
+  await api.syncCredentialVault(db);
+  assert.equal(await fixture.storage.getAccountSyncBoundScope(db), null);
+  state.unlocked = true; state.session = null;
+  await api.syncCredentialVault(db);
+  assert.equal(await fixture.storage.getAccountSyncBoundScope(db), null);
+});
+
+test('locking inside the first scope-binding transaction rolls back the binding', async (t) => {
+  const { db, storage } = await storageFixture(t);
+  let checks = 0;
+  await assert.rejects(storage.bindAccountSyncScope(db, scope, async () => { if (++checks === 3) throw new Error('synthetic lock during binding'); }), /lock during binding/);
+  assert.equal(await storage.getAccountSyncBoundScope(db), null);
+  assert.equal(await storage.getAccountSyncKnownRevision(db, scope), 0);
 });

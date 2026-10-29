@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -15,40 +15,55 @@ import { SymbolIcon } from '@/components/symbol-icon';
 import { getCredentialCategories, getCredentials } from '@/lib/credential-vault';
 import { AccountSyncCard } from '@/components/account-sync-card';
 import { subscribeAccountSyncChanges } from '@/lib/account-sync-events';
-import { useTodos } from '@/providers/todo-provider';
+import { syncCredentialVault } from '@/lib/account-sync';
 import { colors, layout } from '@/theme/colors';
 import type { CredentialCategory, CredentialEntry } from '@/types/credential';
 
 export default function PasswordsScreen() {
   const database = useSQLiteContext();
   const router = useRouter();
-  const { refresh: refreshWorkspace } = useTodos();
   const [entries, setEntries] = useState<CredentialEntry[]>([]);
   const [categories, setCategories] = useState<CredentialCategory[]>([]);
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const focused = useRef(false);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     try {
       const [nextEntries, nextCategories] = await Promise.all([
         getCredentials(database),
         getCredentialCategories(database),
       ]);
+      if (!focused.current || generation !== loadGeneration.current) return;
       setEntries(nextEntries);
       setCategories(nextCategories);
       setErrorMessage(null);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '密码库读取失败');
+      if (focused.current && generation === loadGeneration.current) setErrorMessage(error instanceof Error ? error.message : '密码库读取失败');
     }
   }, [database]);
 
   useFocusEffect(
     useCallback(() => {
+      focused.current = true;
       void load();
-      return subscribeAccountSyncChanges((event) => { if (event === 'imported' || event === 'local-changed') void load(); });
-    }, [load]),
+      const unsubscribe = subscribeAccountSyncChanges((event) => { if (event === 'imported' || event === 'local-changed') void load(); });
+      // Entering this screen is an explicit opportunity to receive another
+      // device's edits, without waiting for AppState or hiding local records.
+      void syncCredentialVault(database).catch(() => undefined);
+      return () => {
+        focused.current = false;
+        loadGeneration.current += 1;
+        unsubscribe();
+        setEntries([]);
+        setCategories([]);
+        setIsRefreshing(false);
+      };
+    }, [database, load]),
   );
 
   const filteredEntries = useMemo(() => {
@@ -70,10 +85,12 @@ export default function PasswordsScreen() {
   const refresh = async () => {
     setIsRefreshing(true);
     try {
-      await refreshWorkspace();
+      await syncCredentialVault(database);
       await load();
+    } catch (error) {
+      if (focused.current) setErrorMessage(error instanceof Error ? error.message : '密码库同步未完成，本机资料已保留。');
     } finally {
-      setIsRefreshing(false);
+      if (focused.current) setIsRefreshing(false);
     }
   };
 

@@ -1,10 +1,10 @@
 # 工作台 Android APK
 
-安卓和 iPhone 使用同一份 Expo SDK 55 / React Native / TypeScript 源码。安卓包名固定为 `com.xiaoke.salesworkspace`；当前 1.6.0，versionCode 14。此版只调整安卓小组件，iPhone build 12 和最低 iOS 16.1 不变。
+安卓和 iPhone 使用同一份 Expo SDK 55 / React Native / TypeScript 源码。安卓包名固定为 `com.xiaoke.salesworkspace`；当前 1.6.0，versionCode 15。此版修复密码库同步，配套 iPhone build 13，最低 iOS 16.1 不变；保留 build 14 的正方形待办小组件。
 
 ## 安装与使用
 
-下载已签名的 `CardWorkbench-1.6.0-build14.apk`，在安卓设备允许当前浏览器或文件管理器“安装未知应用”后覆盖安装，不要先卸载，以保留本机记录。无需 Google Play 或付费开发者会员。首次打开需要先设置设备锁屏密码/PIN/指纹，通过系统身份验证解锁。
+下载已签名的 `CardWorkbench-1.6.0-build15.apk`，在安卓设备允许当前浏览器或文件管理器“安装未知应用”后覆盖安装，不要先卸载，以保留本机记录。无需 Google Play 或付费开发者会员。首次打开需要先设置设备锁屏密码/PIN/指纹，通过系统身份验证解锁。
 
 在“计划 → 锁屏提醒”允许通知。Android 13 及以上需要通知授权；Android 12 及以上的精确提醒需要允许“闹钟和提醒”。未授权精确提醒时安全降级，系统省电、强行停止和厂商后台限制可能造成延迟，不能保证强制亮屏或绕过勿扰模式。
 

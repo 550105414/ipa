@@ -39,6 +39,12 @@ export function canonicalJson(value: unknown): string {
 export const syncFingerprint = (record: SyncRecord | undefined): string | null => record
   ? bytesToHex(sha256(utf8ToBytes(canonicalJson(record)))) : null;
 
+/** Transient semantic identity for an unlocked conflict prompt; never persist it. */
+export const syncDocumentFingerprint = (document: SyncDocument): string => bytesToHex(sha256(utf8ToBytes(canonicalJson({
+  version: document.version,
+  records: [...document.records].sort((a, b) => syncRecordKey(a).localeCompare(syncRecordKey(b))),
+}))));
+
 /** Separate local/remote baselines recover safely from an acknowledged upload followed by an interrupted import. */
 export function mergeSyncDocuments(local: SyncDocument, remote: SyncDocument, baselines: SyncBaseline[], resolution: SyncResolution = 'block'): SyncDocument {
   const localMap = new Map(local.records.map((record) => [syncRecordKey(record), record]));

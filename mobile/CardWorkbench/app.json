@@ -10,7 +10,7 @@
     "ios": {
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.xiaoke.salesworkspace",
-      "buildNumber": "12",
+      "buildNumber": "13",
       "infoPlist": {
         "CFBundleDisplayName": "工作台",
         "NSFaceIDUsageDescription": "用于保护个人客户资料和待办内容。",
@@ -20,7 +20,7 @@
     },
     "android": {
       "package": "com.xiaoke.salesworkspace",
-      "versionCode": 14,
+      "versionCode": 15,
       "allowBackup": false,
       "permissions": ["android.permission.SCHEDULE_EXACT_ALARM"],
       "blockedPermissions": ["android.permission.RECORD_AUDIO", "android.permission.SYSTEM_ALERT_WINDOW"],

@@ -402,6 +402,7 @@ async function controllerFixture(t, patch = {}) {
     'expo-secure-store': { WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'device-only', getItemAsync: async (key) => state.stored.get(key) ?? null, setItemAsync: async (key, value) => { state.stored.set(key, value); }, deleteItemAsync: async (key) => { state.stored.delete(key); } },
     'react-native': { AppState: platform },
     './account-sync-crypto': mockCrypto, './account-sync-model': model,
+    './account-sync-kdf': { deriveSyncKey: async (bytes, salt) => new Uint8Array(pbkdf2Sync(bytes, salt, 310000, 32, 'sha256')) },
     './account-sync-events': { emitAccountSyncChange: (event) => state.events.push(event) },
     './face-id-session': { loadValidFaceIdSession: async () => state.unlocked ? Date.now() + 60000 : null },
     './task-sync': { syncWorkspaceTasks: async () => { await state.onCore?.(); } },
@@ -783,4 +784,110 @@ test('locking inside the first scope-binding transaction rolls back the binding'
   await assert.rejects(storage.bindAccountSyncScope(db, scope, async () => { if (++checks === 3) throw new Error('synthetic lock during binding'); }), /lock during binding/);
   assert.equal(await storage.getAccountSyncBoundScope(db), null);
   assert.equal(await storage.getAccountSyncKnownRevision(db, scope), 0);
+});
+
+test('progress names the actual CPU, network and import stages before upload and clears on success', async (t) => {
+  const { state, api, db } = await controllerFixture(t);
+  state.cloud = { scope, revision: 1, envelope: await state.makeEnvelope(), updatedAt: '2026-10-29' };
+  const stages = [];
+  const requestStages = [];
+  const started = Date.now();
+  const unsubscribe = api.subscribeAccountSyncStatus(() => {
+    const current = api.getAccountSyncStatus();
+    if (current.progress) stages.push({ ...current.progress });
+  });
+  t.after(unsubscribe);
+  state.onDecrypt = async () => assert.equal(api.getAccountSyncStatus().progress?.stage, '正在计算密钥并解密云端资料');
+  state.onEncrypt = async () => assert.equal(api.getAccountSyncStatus().progress?.stage, '正在加密待上传资料');
+  state.onHeaders = () => requestStages.push(api.getAccountSyncStatus().progress?.stage);
+  await api.syncCredentialVault(db);
+  assert.deepEqual(requestStages, ['正在读取云端加密版本', '正在上传并等待云端确认']);
+  const order = [...new Set(stages.map((stage) => stage.stage))];
+  assert.deepEqual(order, [
+    '正在读取云端加密版本',
+    '正在计算密钥并解密云端资料',
+    '正在读取本机密码库并合并',
+    '正在加密待上传资料',
+    '正在上传并等待云端确认',
+    '正在安全导入本机密码库',
+  ]);
+  assert.ok(stages.every((stage) => stage.attempt === 1 && Number.isFinite(stage.startedAt) && stage.startedAt >= started));
+  assert.ok(stages.every((stage) => Object.keys(stage).sort().join(',') === 'attempt,stage,startedAt'), 'Progress carries no passwords, records, keys or connection credentials');
+  const final = api.getAccountSyncStatus();
+  assert.equal(final.phase, 'partial');
+  assert.equal(final.progress, null);
+  assert.ok(Number.isFinite(final.lastDurationMs) && final.lastDurationMs >= 0);
+  assert.equal(state.imports, 1);
+});
+
+test('CAS 409 exposes a fresh attempt number, reruns its stages and clears progress after success', async (t) => {
+  const { state, api, db } = await controllerFixture(t, { putStatuses: [409] });
+  const stages = [];
+  const unsubscribe = api.subscribeAccountSyncStatus(() => {
+    const progress = api.getAccountSyncStatus().progress;
+    if (progress) stages.push({ ...progress });
+  });
+  t.after(unsubscribe);
+  await api.syncCredentialVault(db);
+  assert.equal(state.requests.filter((request) => request.method === 'PUT').length, 2);
+  assert.ok(stages.some((progress) => progress.stage === '检测到新版本，正在重新读取并合并' && progress.attempt === 2));
+  assert.deepEqual(stages.filter((progress, index) => progress.stage === '正在读取云端加密版本' && (index === 0 || stages[index - 1].stage !== progress.stage || stages[index - 1].attempt !== progress.attempt)).map((progress) => progress.attempt), [1, 2]);
+  assert.ok(stages.some((progress) => progress.stage === '正在加密待上传资料' && progress.attempt === 2));
+  assert.ok(stages.some((progress) => progress.stage === '正在安全导入本机密码库' && progress.attempt === 2));
+  assert.equal(api.getAccountSyncStatus().progress, null);
+  assert.equal(api.getAccountSyncStatus().phase, 'partial');
+  assert.equal(state.imports, 1);
+});
+
+test('failed synchronization stops visible progress instead of leaving an old stage spinning', async (t) => {
+  const { state, api, db } = await controllerFixture(t, { putStatuses: [409, 409, 409] });
+  const attempts = [];
+  const unsubscribe = api.subscribeAccountSyncStatus(() => {
+    const progress = api.getAccountSyncStatus().progress;
+    if (progress?.stage === '正在上传并等待云端确认') attempts.push(progress.attempt);
+  });
+  t.after(unsubscribe);
+  await assert.rejects(api.syncCredentialVault(db), /正在修改资料/);
+  assert.deepEqual([...new Set(attempts)], [1, 2, 3]);
+  assert.equal(api.getAccountSyncStatus().phase, 'error');
+  assert.equal(api.getAccountSyncStatus().progress, null);
+  assert.equal(state.imports, 0);
+});
+
+test('wrong configured password clears its verification stage and preserves the saved password', async (t) => {
+  const { state, api, db } = await controllerFixture(t);
+  state.cloud = { scope, revision: 1, envelope: await state.makeEnvelope(), updatedAt: '2026-10-29' };
+  const previous = state.stored.get(`account-sync.password.${scope}`);
+  const stages = [];
+  const unsubscribe = api.subscribeAccountSyncStatus(() => {
+    const progress = api.getAccountSyncStatus().progress;
+    if (progress) stages.push(progress.stage);
+  });
+  t.after(unsubscribe);
+  state.onDecrypt = async () => assert.equal(api.getAccountSyncStatus().progress?.stage, '正在计算密钥并验证原同步密码');
+  await assert.rejects(api.configureAccountSyncPassword(db, newPassword), /密码不正确/);
+  assert.ok(stages.includes('正在读取云端以验证同步密码'));
+  assert.ok(stages.includes('正在计算密钥并验证原同步密码'));
+  assert.equal(api.getAccountSyncStatus().phase, 'error');
+  assert.equal(api.getAccountSyncStatus().progress, null);
+  assert.equal(state.stored.get(`account-sync.password.${scope}`), previous);
+  assert.equal(state.requests.some((request) => request.method === 'PUT'), false);
+});
+
+test('cancelled old synchronization cannot resurrect progress after a newer password setup error', async (t) => {
+  let enteredCore;
+  let releaseCore;
+  const entered = new Promise((resolve) => { enteredCore = resolve; });
+  const gate = new Promise((resolve) => { releaseCore = resolve; });
+  const { state, api, db } = await controllerFixture(t, { onCore: async () => { enteredCore(); await gate; } });
+  const old = api.syncAccountData(db);
+  const cancelled = assert.rejects(old, /密码设置已变化/);
+  await entered;
+  await assert.rejects(api.configureAccountSyncPassword(db, 'short'), /至少 12/);
+  assert.equal(api.getAccountSyncStatus().phase, 'error');
+  releaseCore();
+  await cancelled;
+  assert.equal(api.getAccountSyncStatus().phase, 'error', 'A cancelled old operation must not repaint a new error as syncing');
+  assert.equal(api.getAccountSyncStatus().progress, null);
+  assert.equal(state.requests.some((request) => request.method === 'PUT'), false);
 });

@@ -19,6 +19,16 @@ public class CardWorkbenchCredentialVaultModule: Module {
       UUID().uuidString.lowercased()
     }
 
+    Function("supportsSyncKeyDerivation") { true }
+
+    // Expo AsyncFunction runs away from the JS thread by default. Do not move
+    // this CPU-bound operation onto the main queue.
+    AsyncFunction("deriveSyncKeyAsync") {
+      (passwordUtf8Base64: String, saltBase64: String) throws -> String in
+      try SyncKeyDerivation.deriveKey(
+        passwordUtf8Base64: passwordUtf8Base64, saltBase64: saltBase64)
+    }
+
     AsyncFunction("encryptAsync") { (recordID: String, plaintext: String) throws -> [String: Any] in
       guard !recordID.isEmpty else { throw CredentialVaultException("record id is required") }
       let key = try loadOrCreateMasterKey()

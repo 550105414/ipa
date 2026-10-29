@@ -29,7 +29,7 @@ jobs:
       SCHEME: app
       WIDGET_TARGET: ExpoWidgetsTarget
       APP_VERSION: 1.6.0
-      APP_BUILD: "13"
+      APP_BUILD: "14"
       WIDGET_DISPLAY_NAME: 工作台待办
 
     steps:
@@ -78,6 +78,16 @@ jobs:
             -o "$RUNNER_TEMP/widget-schedule-tests"
           TZ=Asia/Shanghai "$RUNNER_TEMP/widget-schedule-tests"
           TZ=America/Los_Angeles "$RUNNER_TEMP/widget-schedule-tests"
+
+      - name: Test native password sync key derivation
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx swiftc \
+            modules/credential-vault/ios/SyncKeyDerivation.swift \
+            tests/sync-key-derivation-tests.swift \
+            -o "$RUNNER_TEMP/sync-key-derivation-tests"
+          "$RUNNER_TEMP/sync-key-derivation-tests" \
+            | tee "$RUNNER_TEMP/logs-raw/sync-key-derivation-tests.log"
 
       - name: Check Expo dependencies
         run: npx expo install --check

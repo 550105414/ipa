@@ -36,29 +36,43 @@ export function validateSyncPassword(password: string): void {
 }
 
 const associatedData = (scope: string) => utf8ToBytes(`cardworkbench-sync|v1|${scope}`);
-async function deriveKey(password: string, salt: Uint8Array): Promise<Uint8Array> {
+export type SyncKeyDeriver = (passwordUtf8: Uint8Array, salt: Uint8Array) => Promise<Uint8Array>;
+async function deriveKey(password: string, salt: Uint8Array, keyDeriver?: SyncKeyDeriver): Promise<Uint8Array> {
   validateSyncPassword(password);
-  return pbkdf2Async(sha256, utf8ToBytes(password), salt, { c: SYNC_KDF_ITERATIONS, dkLen: 32, asyncTick: 10 });
+  const passwordUtf8 = utf8ToBytes(password);
+  try {
+    const key = keyDeriver
+      ? await keyDeriver(passwordUtf8, salt)
+      : await pbkdf2Async(sha256, passwordUtf8, salt, { c: SYNC_KDF_ITERATIONS, dkLen: 32, asyncTick: 10 });
+    if (!(key instanceof Uint8Array) || key.length !== 32) {
+      if (key instanceof Uint8Array) key.fill(0);
+      throw new Error('同步密钥计算结果无效，未覆盖任何资料。');
+    }
+    return key;
+  } finally {
+    passwordUtf8.fill(0);
+  }
 }
 
-export async function encryptSyncDocument(password: string, scope: string, document: SyncDocument, randomBytes: (length: number) => Promise<Uint8Array>, reuseSalt?: string): Promise<SyncEnvelope> {
+export async function encryptSyncDocument(password: string, scope: string, document: SyncDocument, randomBytes: (length: number) => Promise<Uint8Array>, reuseSalt?: string, keyDeriver?: SyncKeyDeriver): Promise<SyncEnvelope> {
   const plaintext = utf8ToBytes(canonicalJson(validateSyncDocument(document)));
   if (plaintext.length + 16 > MAX_CIPHERTEXT_BYTES) throw new Error('加密同步资料超过 1 MiB 容量，未上传，本机资料已保留；请先备份并整理资料。');
   const salt = reuseSalt ? base64ToBytes(reuseSalt) : await randomBytes(16);
   const nonce = await randomBytes(12);
   if (salt.length !== 16 || nonce.length !== 12) throw new Error('安全随机数生成失败。');
-  const key = await deriveKey(password, salt);
+  let key: Uint8Array | undefined;
   try {
+    key = await deriveKey(password, salt, keyDeriver);
     return { version: 1, kdf: 'pbkdf2-sha256', iterations: SYNC_KDF_ITERATIONS, salt: bytesToBase64(salt), nonce: bytesToBase64(nonce), ciphertext: bytesToBase64(gcm(key, nonce, associatedData(scope)).encrypt(plaintext)) };
   } finally {
-    key.fill(0);
+    key?.fill(0);
     plaintext.fill(0);
   }
 }
 
-export async function decryptSyncDocument(password: string, scope: string, value: unknown): Promise<SyncDocument> {
+export async function decryptSyncDocument(password: string, scope: string, value: unknown, keyDeriver?: SyncKeyDeriver): Promise<SyncDocument> {
   const envelope = validateSyncEnvelope(value);
-  const key = await deriveKey(password, base64ToBytes(envelope.salt));
+  const key = await deriveKey(password, base64ToBytes(envelope.salt), keyDeriver);
   let plaintext: Uint8Array;
   try {
     plaintext = gcm(key, base64ToBytes(envelope.nonce), associatedData(scope)).decrypt(base64ToBytes(envelope.ciphertext));

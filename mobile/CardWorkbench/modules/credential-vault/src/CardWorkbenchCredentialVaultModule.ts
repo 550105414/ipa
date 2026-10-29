@@ -9,6 +9,8 @@ declare class CardWorkbenchCredentialVaultModule extends NativeModule<Record<str
   newRecordId(): string;
   encryptAsync(recordId: string, plaintext: string): Promise<EncryptedCredential>;
   decryptAsync(recordId: string, ciphertext: string, keyVersion: number): Promise<string>;
+  supportsSyncKeyDerivation(): boolean;
+  deriveSyncKeyAsync(passwordUtf8Base64: string, saltBase64: string): Promise<string>;
   generatePasswordAsync(
     length: number,
     uppercase: boolean,

@@ -8,7 +8,7 @@ const read = (path) => readFile(new URL(path, project), 'utf8');
 test('Android release identity, private data backup and permissions stay explicit', async () => {
   const { expo } = JSON.parse(await read('app.json'));
   assert.equal(expo.android.package, 'com.xiaoke.salesworkspace');
-  assert.equal(expo.android.versionCode, 15);
+  assert.equal(expo.android.versionCode, 16);
   assert.equal(expo.version, '1.6.0');
   assert.equal(expo.android.allowBackup, false);
   assert.ok(expo.android.permissions.includes('android.permission.SCHEDULE_EXACT_ALARM'));

@@ -2,6 +2,7 @@ package expo.modules.credentialvault
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.os.Build
 import android.util.Base64
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -16,6 +17,31 @@ class CardWorkbenchCredentialVaultModule : Module() {
 
     Function("newRecordId") {
       UUID.randomUUID().toString()
+    }
+
+    Function("supportsSyncKeyDerivation") {
+      // PBKDF2WithHmacSHA256 is a public platform algorithm from API 26.
+      // Keep API 24/25 supported through the existing JS implementation.
+      Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+    }
+
+    // Expo dispatches AsyncFunction away from the JS thread by default.
+    AsyncFunction("deriveSyncKeyAsync") { passwordUtf8Base64: String, saltBase64: String ->
+      check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        "Native sync key derivation is unsupported on this Android version."
+      }
+      val password = decodeCanonicalBase64(passwordUtf8Base64, SyncKeyDerivation.MAXIMUM_PASSWORD_BYTES)
+      var salt: ByteArray? = null
+      var key: ByteArray? = null
+      try {
+        salt = decodeCanonicalBase64(saltBase64, SyncKeyDerivation.SALT_LENGTH)
+        key = SyncKeyDerivation.deriveKey(password, salt)
+        Base64.encodeToString(key, Base64.NO_WRAP)
+      } finally {
+        password.fill(0)
+        salt?.fill(0)
+        key?.fill(0)
+      }
     }
 
     AsyncFunction("encryptAsync") { recordId: String, plaintext: String ->
@@ -46,6 +72,22 @@ class CardWorkbenchCredentialVaultModule : Module() {
         length: Int, uppercase: Boolean, lowercase: Boolean, numbers: Boolean, symbols: Boolean ->
       CredentialVaultPrimitives.generatePassword(length, uppercase, lowercase, numbers, symbols)
     }
+  }
+
+  private fun decodeCanonicalBase64(value: String, maximumBytes: Int): ByteArray {
+    require(value.length <= ((maximumBytes + 2) / 3) * 4) {
+      "Sync key input is not canonical Base64."
+    }
+    val decoded = try {
+      Base64.decode(value, Base64.NO_WRAP)
+    } catch (_: IllegalArgumentException) {
+      throw IllegalArgumentException("Sync key input is not canonical Base64.")
+    }
+    if (decoded.size > maximumBytes || Base64.encodeToString(decoded, Base64.NO_WRAP) != value) {
+      decoded.fill(0)
+      throw IllegalArgumentException("Sync key input is not canonical Base64.")
+    }
+    return decoded
   }
 
   private fun loadMasterKey(createIfMissing: Boolean): SecretKey = synchronized(keyCreationLock) {

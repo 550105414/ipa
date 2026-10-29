@@ -3,6 +3,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useState, useSyncExternalStore } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
+import { AccountSyncProgress } from '@/components/account-sync-progress';
 import { changeAccountSyncPassword, configureAccountSyncPassword, forgetAccountSyncPassword, getAccountSyncStatus, subscribeAccountSyncStatus, syncAccountData, syncCredentialVault } from '@/lib/account-sync';
 import { useTodos } from '@/providers/todo-provider';
 import { colors } from '@/theme/colors';
@@ -66,6 +67,7 @@ export default function AccountSyncScreen() {
       </View>
       <View style={{ padding: 18, gap: 12, borderRadius: 20, backgroundColor: colors.card }}>
         <Text selectable style={{ color: status.phase === 'error' || status.phase === 'conflict' ? colors.red : colors.label, lineHeight: 22 }}>{status.message}</Text>
+        <AccountSyncProgress status={status} />
         {status.lastVaultSyncedAt ? <Text selectable style={{ color: colors.secondaryLabel }}>密码库最近成功：{new Date(status.lastVaultSyncedAt).toLocaleString()}</Text> : null}
         {status.lastSyncedAt ? <Text selectable style={{ color: colors.secondaryLabel }}>完整资料最近成功：{new Date(status.lastSyncedAt).toLocaleString()}</Text> : null}
         {status.scope ? <Text selectable style={{ color: colors.secondaryLabel, fontSize: 12 }}>账号隔离标识：{status.scope.slice(0, 12)}…</Text> : null}

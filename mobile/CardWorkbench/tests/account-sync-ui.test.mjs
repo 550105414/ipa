@@ -73,6 +73,7 @@ async function screenFixture(path, patch = {}) {
     'expo-router': { useRouter: () => ({ push() {}, replace() {} }), useLocalSearchParams: () => ({ id: 'entry-1' }), useFocusEffect: (callback) => { focusEffect = callback; } },
     'expo-sqlite': { useSQLiteContext: () => database },
     'expo-clipboard': { setStringAsync: async () => undefined },
+    '@/components/account-sync-progress': { AccountSyncProgress: 'AccountSyncProgress' },
     '@/components/symbol-icon': { SymbolIcon: 'SymbolIcon' },
     '@/components/account-sync-card': { AccountSyncCard: 'AccountSyncCard' },
     '@/lib/credential-vault': { getCredentials: () => state.readEntries?.() ?? Promise.resolve([entry('本机平台')]), getCredentialCategories: async () => [], getCredential: () => state.readEntry?.() ?? Promise.resolve(entry('本机平台')), deleteCredential: async () => undefined },

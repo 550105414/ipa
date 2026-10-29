@@ -22,7 +22,7 @@ test('Expo iOS release configuration stays pinned', async () => {
   assert.equal(appConfig.expo.name, '工作台');
   assert.equal(appConfig.expo.version, '1.6.0');
   assert.equal(appConfig.expo.ios.bundleIdentifier, 'com.xiaoke.salesworkspace');
-  assert.equal(appConfig.expo.ios.buildNumber, '13');
+  assert.equal(appConfig.expo.ios.buildNumber, '14');
   assert.equal(appConfig.expo.ios.infoPlist.CFBundleDisplayName, '工作台');
   assert.equal(buildProperties?.[1]?.ios?.deploymentTarget, '16.1');
   assert.ok(appConfig.expo.plugins.includes('expo-sqlite'));

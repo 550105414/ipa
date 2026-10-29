@@ -4,6 +4,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { AppState } from 'react-native';
 
 import { decryptSyncDocument, encryptSyncDocument, validateSyncEnvelope, validateSyncPassword, type SyncEnvelope } from './account-sync-crypto';
+import { deriveSyncKey } from './account-sync-kdf';
 import { AccountSyncConflict, canonicalJson, mergeSyncDocuments, syncDocumentFingerprint, validateSyncDocument, type SyncDocument, type SyncResolution } from './account-sync-model';
 import { applyAccountSyncDocument, bindAccountSyncScope, captureAccountSyncSnapshot, getAccountSyncBoundScope, getAccountSyncKnownRevision, loadAccountSyncBaselines, LocalAccountSyncChanged, rememberAccountSyncAcknowledgement, type AccountSyncMode } from './account-sync-storage';
 import { emitAccountSyncChange } from './account-sync-events';
@@ -23,6 +24,8 @@ export type AccountSyncStatus = {
   syncScope: AccountSyncMode;
   conflictContext: AccountSyncConflictContext | null;
   message: string; conflictCount: number;
+  progress?: { stage: string; startedAt: number; attempt: number } | null;
+  lastDurationMs?: number | null;
 };
 const secureOptions = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY } as const;
 const passwordKey = (scope: string) => `account-sync.password.${scope}`;
@@ -37,7 +40,13 @@ let status: AccountSyncStatus = { phase: 'disabled', scope: null, configured: fa
 const statusListeners = new Set<() => void>();
 export const getAccountSyncStatus = () => status;
 export const subscribeAccountSyncStatus = (listener: () => void) => { statusListeners.add(listener); return () => { statusListeners.delete(listener); }; };
-const updateStatus = (next: Partial<AccountSyncStatus>) => { status = { ...status, ...next }; for (const listener of statusListeners) listener(); };
+const updateStatus = (next: Partial<AccountSyncStatus>) => {
+  status = { ...status, ...next, ...(next.phase && next.phase !== 'syncing' ? { progress: null } : {}) };
+  for (const listener of statusListeners) listener();
+};
+// Stage labels/times live only in memory. Never include record contents,
+// passwords, derived keys, ciphertext or connection credentials in diagnostics.
+const beginStage = (stage: string, attempt = 1) => updateStatus({ phase: 'syncing', message: `${stage}…`, progress: { stage, startedAt: Date.now(), attempt } });
 
 async function requireUnlocked(): Promise<void> {
   if (AppState.currentState !== 'active' || !(await loadValidFaceIdSession())) throw new Error('请在解锁后的工作台中同步；后台和锁定期间不会自动读取密码库。');
@@ -123,7 +132,7 @@ async function openCloud(cloud: CloudState, passwords: PasswordState, guard: () 
   if (!cloud.envelope) return { document: { version: 1, records: [] }, passwords };
   if (passwords.pending) {
     try {
-      const document = await decryptSyncDocument(passwords.pending, cloud.scope, cloud.envelope);
+      const document = await decryptSyncDocument(passwords.pending, cloud.scope, cloud.envelope, deriveSyncKey);
       await guard();
       // Do not write SecureStore here: a user may remove the password while
       // PBKDF2 is running. Promotion happens after the guarded sync commits.
@@ -134,7 +143,7 @@ async function openCloud(cloud: CloudState, passwords: PasswordState, guard: () 
     }
   }
   await guard();
-  const document = await decryptSyncDocument(passwords.current, cloud.scope, cloud.envelope);
+  const document = await decryptSyncDocument(passwords.current, cloud.scope, cloud.envelope, deriveSyncKey);
   await guard();
   return { document, passwords };
 }
@@ -210,11 +219,20 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
   if (AppState.currentState !== 'active' || !(await loadValidFaceIdSession())) {
     updateStatus({ phase: 'paused', conflictContext: null, message: '已暂停：请解锁工作台后同步。' }); return;
   }
+  const stage = (label: string, attempt = 1) => {
+    // An older pass must not revive its spinner over a newer password-setting
+    // result after returning from an await (including core task sync).
+    if (passwordIntentEpoch !== intentEpoch) throw new PasswordSyncCancelled();
+    beginStage(label, attempt);
+  };
+  if (passwordIntentEpoch !== intentEpoch) throw new PasswordSyncCancelled();
   if (options.resolution && options.resolution !== 'block' && !options.conflictContext) throw new Error('冲突确认已失效，请先重新同步获取最新冲突，再明确选择。');
   let mode: AccountSyncMode = options.credentialsOnly ? 'credentials-only' : 'all';
   let coreFailed = false;
+  const startedAt = Date.now();
   updateStatus({ phase: 'syncing', syncScope: mode, conflictCount: 0, conflictContext: null, message: mode === 'credentials-only' ? '正在独立同步密码库…' : '正在同步基础待办与加密资料…' });
   if (mode === 'all' && !options.skipCore) {
+    stage('正在同步基础待办');
     try { await syncWorkspaceTasks(database); }
     catch (error) {
       if (identityFailure(error)) throw error;
@@ -231,6 +249,7 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
   if (resolution !== 'block' && !conflictContext) throw new Error('冲突确认已失效，请先重新同步获取最新冲突，再明确选择。');
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
+      stage('正在读取云端加密版本', attempt + 1);
       const cloud = await readCloud(database, session);
       await guardSession(session);
       const passwordEpoch = passwordEpochs.get(cloud.scope) ?? 0;
@@ -249,12 +268,13 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
       if (!passwords) { updateStatus({ phase: 'disabled', conflictCount: 0, message: cloud.envelope
         ? '云端已有加密资料；请输入另一台手机使用的原同步密码，验证后才能导入。本机资料未删除。'
         : '本机尚未设置跨设备同步密码；请先在保存完整资料的手机设置，再在另一台输入同一个同步密码。基础客户和待办仍可使用。' }); return; }
-      updateStatus({ phase: 'syncing', conflictCount: 0, message: '正在解密、合并并同步资料…' });
+      stage('正在计算密钥并解密云端资料', attempt + 1);
       const opened = await openCloud(cloud, passwords, guard);
       await guard();
       // First credential-only sync may stop on a merge conflict before ACK or
       // import. Bind its proven account now so later pairing cannot leak local
       // records into a different account; do not acknowledge any revision yet.
+      stage('正在读取本机密码库并合并', attempt + 1);
       await bindAccountSyncScope(database, cloud.scope, guard);
       const snapshot = await captureAccountSyncSnapshot(database, guard, mode);
       const baselines = await loadAccountSyncBaselines(database, cloud.scope, guard, mode);
@@ -287,14 +307,17 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
       let cloudRevision = cloud.revision;
       if (!cloud.envelope || opened.passwords.pending || canonicalJson(merged) !== canonicalJson(opened.document)) {
         const writePassword = opened.passwords.pending ?? opened.passwords.current;
+        stage('正在加密待上传资料', attempt + 1);
         const envelope = await encryptSyncDocument(writePassword, cloud.scope, merged, Crypto.getRandomBytesAsync,
-          opened.passwords.pending ? undefined : cloud.envelope?.salt);
+          opened.passwords.pending ? undefined : cloud.envelope?.salt, deriveSyncKey);
         await guard();
+        stage('正在上传并等待云端确认', attempt + 1);
         const result = await boundedRequest<{ revision: number; updatedAt: string }>(session, { method: 'PUT', body: JSON.stringify({ expectedRevision: cloud.revision, envelope }) });
         if (!result || result.revision !== cloud.revision + 1 || typeof result.updatedAt !== 'string') throw new Error('服务器未确认同步版本，已保留本机资料，请重新检查。');
         cloudRevision = result.revision;
       }
       await guardSession(session);
+      stage('正在安全导入本机密码库', attempt + 1);
       await rememberAccountSyncAcknowledgement(database, cloud.scope, cloudRevision, snapshot.document, mergedParticipants, guard, mode);
       await applyAccountSyncDocument(database, cloud.scope, cloudRevision, snapshot, mergedParticipants, guard);
       if (opened.promote || opened.passwords.pending) {
@@ -305,6 +328,7 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
       }
       const finishedAt = new Date().toISOString();
       updateStatus({ phase: mode === 'all' ? 'ready' : 'partial', configured: true, syncScope: mode, conflictContext: null,
+        lastDurationMs: Math.max(0, Date.now() - startedAt),
         lastVaultSyncedAt: finishedAt, ...(mode === 'all' ? { lastSyncedAt: finishedAt } : {}),
         message: mode === 'all' ? '加密同步完成：密码库和完整待办字段已合并；客户资料使用同一工作台账号。'
           : coreFailed ? '密码库已同步；基础待办未完成，待办资料和基线未被覆盖。'
@@ -317,7 +341,10 @@ async function performSync(database: SQLiteDatabase, options: SyncOptions): Prom
         // an earlier destructive conflict preference against a different revision.
         resolution = 'block';
         conflictContext = undefined;
-        if (attempt < 2) continue;
+        if (attempt < 2) {
+          stage('检测到新版本，正在重新读取并合并', attempt + 2);
+          continue;
+        }
         throw new Error('其他设备或本机正在修改资料，已停止覆盖；稍后点击同步重试。');
       }
       throw error;
@@ -335,12 +362,19 @@ export async function configureAccountSyncPassword(database: SQLiteDatabase, pas
     const session = await loadWorkspaceSession();
     if (!session) throw new Error('请先将这台手机配对到同一工作台账号。');
     const guard = async () => { await guardSession(session); if (passwordIntentEpoch !== intent) throw new PasswordSyncCancelled(); };
+    beginStage('正在读取云端以验证同步密码');
     const cloud = await readCloud(database, session);
     await guard();
-    if (cloud.envelope) await decryptSyncDocument(password, cloud.scope, cloud.envelope);
+    if (cloud.envelope) {
+      beginStage('正在计算密钥并验证原同步密码');
+      await decryptSyncDocument(password, cloud.scope, cloud.envelope, deriveSyncKey);
+    }
     await guard();
     await writePasswords(cloud.scope, { current: password }, guard);
     updateStatus({ configured: true, scope: cloud.scope });
+  } catch (error) {
+    if (passwordIntentEpoch === intent && !(error instanceof PasswordSyncCancelled)) updateStatus({ phase: 'error', message: error instanceof Error ? error.message : '同步密码验证失败，本机资料已保留。' });
+    throw error;
   } finally { if (passwordSettingsInProgress === intent) passwordSettingsInProgress = 0; }
   emitAccountSyncChange('settings-changed');
   await syncAccountData(database);
@@ -356,13 +390,18 @@ export async function changeAccountSyncPassword(database: SQLiteDatabase, passwo
     const session = await loadWorkspaceSession();
     if (!session) throw new Error('请先将这台手机配对到同一工作台账号。');
     const guard = async () => { await guardSession(session); if (passwordIntentEpoch !== intent) throw new PasswordSyncCancelled(); };
+    beginStage('正在读取云端以准备更换同步密码');
     const cloud = await readCloud(database, session);
     await guard();
     const passwords = await readPasswords(cloud.scope);
     if (!passwords) throw new Error('请先用当前同步密码连接，再修改密码。');
+    beginStage('正在验证当前同步密码');
     const opened = await openCloud(cloud, passwords, guard);
     await guard();
     await writePasswords(cloud.scope, { current: opened.passwords.current, pending: password }, guard);
+  } catch (error) {
+    if (passwordIntentEpoch === intent && !(error instanceof PasswordSyncCancelled)) updateStatus({ phase: 'error', message: error instanceof Error ? error.message : '更换同步密码失败，原资料已保留。' });
+    throw error;
   } finally { if (passwordSettingsInProgress === intent) passwordSettingsInProgress = 0; }
   emitAccountSyncChange('settings-changed');
   await syncAccountData(database);
